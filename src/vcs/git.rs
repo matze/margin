@@ -158,4 +158,17 @@ impl Vcs for Backend {
         let spec = format!("{}:{}", revision.0, path.0.display());
         self.run(&["show", &spec])
     }
+
+    fn file_at_parent(
+        &self,
+        revision: &RevisionId,
+        path: &RepoRelPath,
+    ) -> Result<String, VcsError> {
+        let spec = format!("{}^1:{}", revision.0, path.0.display());
+        self.run(&["show", &spec])
+    }
+
+    fn head(&self) -> Result<RevisionId, VcsError> {
+        self.resolve("HEAD")
+    }
 }

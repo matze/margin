@@ -123,6 +123,19 @@ impl Vcs for Backend {
         self.run(&["file", "show", "-r", &revision.0, "--", &path.0.to_string_lossy()])
     }
 
+    fn file_at_parent(
+        &self,
+        revision: &RevisionId,
+        path: &RepoRelPath,
+    ) -> Result<String, VcsError> {
+        let parent = format!("{}-", revision.0);
+        self.run(&["file", "show", "-r", &parent, "--", &path.0.to_string_lossy()])
+    }
+
+    fn head(&self) -> Result<RevisionId, VcsError> {
+        self.resolve(WORKING_COPY)
+    }
+
     fn message(&self, revision: &RevisionId) -> Result<String, VcsError> {
         Ok(self
             .run(&["log", "-r", &revision.0, "--no-graph", "-T", "description"])?

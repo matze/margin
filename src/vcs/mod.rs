@@ -170,6 +170,15 @@ pub trait Vcs {
     /// File content at a revision, for anchoring and context capture.
     fn file_at(&self, revision: &RevisionId, path: &RepoRelPath) -> Result<String, VcsError>;
 
+    /// File content at a revision's first parent, for resolving old-side anchors
+    /// against the version the line was deleted from.
+    fn file_at_parent(&self, revision: &RevisionId, path: &RepoRelPath)
+        -> Result<String, VcsError>;
+
+    /// The current working revision (`HEAD`/`@`), used to infer the change that
+    /// addressed an annotation.
+    fn head(&self) -> Result<RevisionId, VcsError>;
+
     /// The full commit message (subject and body) for a revision.
     fn message(&self, revision: &RevisionId) -> Result<String, VcsError>;
 }
@@ -242,6 +251,24 @@ impl Vcs for Backend {
         match self {
             Backend::Git(backend) => backend.file_at(revision, path),
             Backend::Jj(backend) => backend.file_at(revision, path),
+        }
+    }
+
+    fn file_at_parent(
+        &self,
+        revision: &RevisionId,
+        path: &RepoRelPath,
+    ) -> Result<String, VcsError> {
+        match self {
+            Backend::Git(backend) => backend.file_at_parent(revision, path),
+            Backend::Jj(backend) => backend.file_at_parent(revision, path),
+        }
+    }
+
+    fn head(&self) -> Result<RevisionId, VcsError> {
+        match self {
+            Backend::Git(backend) => backend.head(),
+            Backend::Jj(backend) => backend.head(),
         }
     }
 
