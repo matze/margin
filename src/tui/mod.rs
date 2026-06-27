@@ -496,6 +496,67 @@ mod tests {
     }
 
     #[test]
+    fn line_markers_do_not_bleed_across_files_on_the_same_line() {
+        use crate::anchor::{capture, CONTEXT_LINES};
+        use crate::model::{Actor, AnnotationId, Event, EventKind, LineNumber, RepoRelPath, Side};
+        use crate::store::Store;
+        use crate::vcs::Vcs;
+
+        // A commit touching two files whose line 1 is identical: a file-blind
+        // marker keyed only by line number would light up both.
+        let repo = tempfile::tempdir().unwrap();
+        let path = repo.path();
+        git(path, &["init", "-q", "-b", "main"]);
+        git(path, &["config", "user.email", "t@example.com"]);
+        git(path, &["config", "user.name", "T"]);
+        std::fs::write(path.join("base.txt"), "base\n").unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "base"]);
+
+        git(path, &["checkout", "-q", "-b", "feature"]);
+        std::fs::write(path.join("a.rs"), "fn shared() {}\n").unwrap();
+        std::fs::write(path.join("b.rs"), "fn shared() {}\n").unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "Add two files"]);
+
+        let backend = Backend::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
+        let revision = backend
+            .revisions(&Base::Branch("main".into()))
+            .unwrap()
+            .revisions[0]
+            .id
+            .clone();
+        let b_path = RepoRelPath(std::path::PathBuf::from("b.rs"));
+        let source = backend.file_at(&revision, &b_path).unwrap();
+        let anchor = capture(
+            b_path.clone(),
+            revision,
+            Side::New,
+            &source,
+            LineNumber::new(1).unwrap(),
+            LineNumber::new(1).unwrap(),
+            CONTEXT_LINES,
+        )
+        .unwrap();
+        Store::open(path)
+            .append(&Event::now(
+                AnnotationId::new(),
+                Actor::Reviewer,
+                EventKind::AnnotationCreated { anchor, body: "on b only".into(), annotation_type: None },
+            ))
+            .unwrap();
+
+        let backend = Backend::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
+        let app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+
+        let a_index = app.file_index_of(&RepoRelPath(std::path::PathBuf::from("a.rs"))).unwrap();
+        let b_index = app.file_index_of(&b_path).unwrap();
+
+        assert!(app.line_marker(b_index, 1).is_some(), "b.rs:1 carries the marker");
+        assert!(app.line_marker(a_index, 1).is_none(), "a.rs:1 must not inherit it");
+    }
+
+    #[test]
     fn editing_appends_an_edit_event() {
         let repo = fixture();
         let mut app = app_with_annotation(repo.path());

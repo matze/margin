@@ -192,7 +192,7 @@ pub struct App {
 
     annotations: Vec<ResolvedAnnotation>,
     commit_markers: HashMap<RevisionId, Marker>,
-    line_markers: HashMap<u32, LineMarker>,
+    line_markers: HashMap<(usize, u32), LineMarker>,
 
     /// Full message of the selected commit, shown when the sidebar is focused.
     pub current_message: String,
@@ -275,9 +275,18 @@ impl App {
         self.commit_markers.get(revision).copied()
     }
 
-    /// Marker for a diff line by its new-side line number, if annotated.
-    pub fn line_marker(&self, new_line: u32) -> Option<LineMarker> {
-        self.line_markers.get(&new_line).copied()
+    /// Marker for a diff line by its file and new-side line number, if annotated.
+    pub fn line_marker(&self, file_index: usize, new_line: u32) -> Option<LineMarker> {
+        self.line_markers.get(&(file_index, new_line)).copied()
+    }
+
+    /// The current diff's index for `file`, matched on its displayed path.
+    pub fn file_index_of(&self, file: &RepoRelPath) -> Option<usize> {
+        self.diff
+            .as_ref()?
+            .files
+            .iter()
+            .position(|diff| diff.display_path() == Some(file))
     }
 
     /// The currently selected revision.
@@ -293,15 +302,25 @@ impl App {
         }
     }
 
+    /// The diff file index of the row under the diff cursor, if any.
+    fn cursor_file_index(&self) -> Option<usize> {
+        match self.rows.get(self.diff_cursor)? {
+            Row::Line { file_index, .. } | Row::Hunk { file_index, .. } => Some(*file_index),
+            _ => None,
+        }
+    }
+
     /// The annotation covering the diff cursor's line on the current commit.
     pub fn annotation_at_cursor(&self) -> Option<&ResolvedAnnotation> {
         let new_line = self.cursor_new_line()?;
+        let file_index = self.cursor_file_index()?;
         let revision = &self.current_revision()?.id;
 
         self.annotations.iter().find(|resolved| {
             let anchor = &resolved.annotation.anchor;
             anchor.revision_id == *revision
                 && anchor.side == Side::New
+                && self.file_index_of(&anchor.file) == Some(file_index)
                 && (anchor.start_line.get()..=anchor.end_line.get()).contains(&new_line)
         })
     }
@@ -491,11 +510,9 @@ impl App {
     /// (only if different) and place the diff cursor on its anchor line — without
     /// changing focus, so the overview can be navigated with the diff following.
     fn reveal_annotation(&mut self) {
-        let Some((revision, start_line)) = self.focused_annotation().map(|resolved| {
-            (
-                resolved.annotation.anchor.revision_id.clone(),
-                resolved.annotation.anchor.start_line.get(),
-            )
+        let Some((revision, file, start_line)) = self.focused_annotation().map(|resolved| {
+            let anchor = &resolved.annotation.anchor;
+            (anchor.revision_id.clone(), anchor.file.clone(), anchor.start_line.get())
         }) else {
             return;
         };
@@ -507,8 +524,16 @@ impl App {
             }
         }
 
+        let Some(file_index) = self.file_index_of(&file) else {
+            return;
+        };
+
         let row = self.rows.iter().position(|row| {
-            matches!(row, Row::Line { line, .. } if line.new_no.map(|n| n.get()) == Some(start_line))
+            matches!(
+                row,
+                Row::Line { file_index: fi, line, .. }
+                    if *fi == file_index && line.new_no.map(|n| n.get()) == Some(start_line)
+            )
         });
 
         if let Some(row) = row {
@@ -1009,7 +1034,7 @@ impl App {
     }
 
     fn recompute_line_markers(&mut self) {
-        let mut markers: HashMap<u32, LineMarker> = HashMap::new();
+        let mut markers: HashMap<(usize, u32), LineMarker> = HashMap::new();
 
         if let Some(revision) = self.current_revision().map(|r| r.id.clone()) {
             for resolved in &self.annotations {
@@ -1019,13 +1044,17 @@ impl App {
                     continue;
                 }
 
+                let Some(file_index) = self.file_index_of(&anchor.file) else {
+                    continue;
+                };
+
                 let marker = Marker::from_status(resolved.status);
                 let (start, end) = (anchor.start_line.get(), anchor.end_line.get());
 
                 for line in start..=end {
                     let position = span_position(line, start, end);
                     markers
-                        .entry(line)
+                        .entry((file_index, line))
                         .and_modify(|existing| {
                             existing.marker = existing.marker.merge(marker);
                             // Overlapping ranges collapse to a plain glyph.

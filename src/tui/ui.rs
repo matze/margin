@@ -258,18 +258,25 @@ fn editor_anchor_row(app: &App) -> Option<usize> {
         return None;
     };
 
-    let end_line = match &editor.mode {
-        EditorMode::Create(target) => target.end.get(),
-        EditorMode::Edit(id) => app.annotation(*id)?.annotation.anchor.end_line.get(),
+    let (file, end_line) = match &editor.mode {
+        EditorMode::Create(target) => (&target.path, target.end.get()),
+        EditorMode::Edit(id) => {
+            let anchor = &app.annotation(*id)?.annotation.anchor;
+            (&anchor.file, anchor.end_line.get())
+        }
     };
 
-    row_of_new_line(app, end_line)
+    row_of_new_line(app, app.file_index_of(file)?, end_line)
 }
 
-/// The diff row whose new-side line number is `new_line`.
-fn row_of_new_line(app: &App, new_line: u32) -> Option<usize> {
+/// The diff row whose new-side line number is `new_line` within `file_index`.
+fn row_of_new_line(app: &App, file_index: usize, new_line: u32) -> Option<usize> {
     app.rows.iter().position(|row| {
-        matches!(row, Row::Line { line, .. } if line.new_no.map(|n| n.get()) == Some(new_line))
+        matches!(
+            row,
+            Row::Line { file_index: fi, line, .. }
+                if *fi == file_index && line.new_no.map(|n| n.get()) == Some(new_line)
+        )
     })
 }
 
@@ -328,7 +335,11 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
             continue;
         }
 
-        if let Some(row) = row_of_new_line(app, anchor.end_line.get()) {
+        let Some(file_index) = app.file_index_of(&anchor.file) else {
+            continue;
+        };
+
+        if let Some(row) = row_of_new_line(app, file_index, anchor.end_line.get()) {
             attachments
                 .entry(row)
                 .or_default()
@@ -493,8 +504,9 @@ fn render_row(
             )
         }
 
-        Row::Line { extension, line, .. } => render_diff_line(
-            app, highlighter, extension, line, width, pane_bg, is_cursor, in_selection, highlight,
+        Row::Line { file_index, extension, line } => render_diff_line(
+            app, highlighter, *file_index, extension, line, width, pane_bg, is_cursor, in_selection,
+            highlight,
         ),
     }
 }
@@ -503,6 +515,7 @@ fn render_row(
 fn render_diff_line(
     app: &App,
     highlighter: &Highlighter,
+    file_index: usize,
     extension: &str,
     line: &DiffLine,
     width: usize,
@@ -513,7 +526,7 @@ fn render_diff_line(
 ) -> Line<'static> {
     let palette = app.palette;
 
-    let line_marker = line.new_no.and_then(|no| app.line_marker(no.get()));
+    let line_marker = line.new_no.and_then(|no| app.line_marker(file_index, no.get()));
 
     let base_bg = if line_marker.is_some() {
         palette.annotated_line_bg
