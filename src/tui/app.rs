@@ -250,6 +250,12 @@ impl App {
             should_quit: false,
         };
 
+        // With a single commit there is nothing to pick in the sidebar, so start
+        // in the diff where annotating happens.
+        if app.revisions.len() == 1 {
+            app.focus = Focus::Diff;
+        }
+
         app.refresh_annotations();
         app.load_selected_commit();
         Ok(app)
