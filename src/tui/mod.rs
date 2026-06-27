@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
+use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
 use crate::vcs::{Base, GitBackend};
 use highlight::Highlighter;
@@ -27,13 +28,33 @@ const POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// Launch the TUI against `backend`, listing commits per `base`. `theme` is the
 /// explicit `--theme`/config override, if any; otherwise the terminal is queried.
 pub fn run(backend: GitBackend, base: Base, theme: Option<ThemeMode>) -> Result<()> {
-    let mut terminal = ratatui::init();
-    // Resolve the theme with the terminal in raw mode so the OSC 11 query works.
-    let theme = ThemeMode::resolve(theme);
+    // Resolve the theme before the alternate screen: some terminals (e.g.
+    // WezTerm) only answer the OSC 11 background query on the normal screen.
+    // Raw mode is needed to read the reply.
+    let theme = resolve_theme(theme);
 
+    let mut terminal = ratatui::init();
     let result = build_and_run(&mut terminal, backend, base, theme);
     ratatui::restore();
     result
+}
+
+/// Resolve the theme, enabling raw mode for the terminal query when no explicit
+/// choice short-circuits it. Runs before [`ratatui::init`] enters the alternate
+/// screen.
+fn resolve_theme(explicit: Option<ThemeMode>) -> ThemeMode {
+    if explicit.is_some() {
+        return ThemeMode::resolve(explicit);
+    }
+
+    let raw_enabled = enable_raw_mode().is_ok();
+    let theme = ThemeMode::resolve(explicit);
+
+    if raw_enabled {
+        let _ = disable_raw_mode();
+    }
+
+    theme
 }
 
 fn build_and_run(

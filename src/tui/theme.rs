@@ -6,13 +6,19 @@
 //! when `COLORFGBG` is unset. Every step is tolerant: a failed query degrades to
 //! the next source.
 //!
+//! The OSC 11 query is paired with a Device Attributes request (DA1, `ESC [ c`)
+//! as a sync barrier. Terminals answer DA1 in order and near-universally, so the
+//! arrival of the DA1 reply proves the OSC 11 reply (if any) has already been
+//! delivered — making detection independent of a guessed timeout. Reading
+//! through the DA1 reply also consumes it so it never leaks into the key loop.
+//!
 //! Colors are ANSI-first so they track the user's terminal theme: foregrounds
 //! use the 16 named ANSI colors and the default fg/bg inherit the terminal
 //! (`Reset`). Only the diff and highlight *backgrounds* keep a faint per-mode
 //! tint, since no ANSI slot provides a subtle background.
 
-use std::io::{IsTerminal, Read, Write};
-use std::os::fd::RawFd;
+use std::io::{IsTerminal, Write};
+use std::os::fd::{AsRawFd, RawFd};
 use std::time::{Duration, Instant};
 
 use ratatui::style::Color;
@@ -27,7 +33,8 @@ pub enum ThemeMode {
 impl ThemeMode {
     /// Resolve the effective mode from an optional explicit choice, then the
     /// terminal's reported background, then `COLORFGBG`, then dark. Must be
-    /// called with the terminal in raw mode so the OSC 11 reply can be read.
+    /// called with the terminal in raw mode so the OSC 11 and DA1 replies can be
+    /// read.
     pub fn resolve(explicit: Option<ThemeMode>) -> ThemeMode {
         explicit
             .or_else(query_terminal_background)
@@ -60,7 +67,7 @@ fn mode_from_rgb(r: u8, g: u8, b: u8) -> ThemeMode {
 
 /// Ask the terminal for its background color via OSC 11 and classify it.
 /// Returns `None` when not attached to a terminal or the query fails/times out.
-pub fn query_terminal_background() -> Option<ThemeMode> {
+fn query_terminal_background() -> Option<ThemeMode> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return None;
     }
@@ -70,38 +77,68 @@ pub fn query_terminal_background() -> Option<ThemeMode> {
     Some(mode_from_rgb(r, g, b))
 }
 
-/// Write the OSC 11 query and read the reply, bounded by a short timeout.
+/// Query the terminal background (OSC 11) and read until the DA1 reply that
+/// follows it, which bounds the read without relying on a guessed timeout. The
+/// outer deadline only guards terminals that answer neither request.
 fn osc11_reply() -> Option<String> {
     let mut out = std::io::stdout();
-    out.write_all(b"\x1b]11;?\x07").ok()?;
+    out.write_all(b"\x1b]11;?\x07\x1b[c").ok()?;
     out.flush().ok()?;
 
-    let stdin = std::io::stdin();
-    let fd = std::os::fd::AsRawFd::as_raw_fd(&stdin);
-    let mut lock = stdin.lock();
+    // Read straight from the fd: a buffered reader (e.g. `stdin().lock()`) would
+    // slurp the whole reply into userspace on the first read, leaving `poll`
+    // below to see an empty kernel buffer and block until the deadline.
+    let fd = std::io::stdin().as_raw_fd();
 
     let mut buf = Vec::new();
-    let mut byte = [0u8; 1];
-    let deadline = Instant::now() + Duration::from_millis(100);
+    let deadline = Instant::now() + Duration::from_millis(500);
 
-    while Instant::now() < deadline && buf.len() < 64 {
+    while Instant::now() < deadline && buf.len() < 256 {
         let remaining = deadline.saturating_duration_since(Instant::now());
 
         if !fd_readable(fd, remaining) {
             break;
         }
 
-        match lock.read(&mut byte) {
-            Ok(n) if n > 0 => buf.push(byte[0]),
-            _ => break,
+        match read_byte(fd) {
+            Some(byte) => buf.push(byte),
+            None => break,
         }
 
-        if byte[0] == 0x07 || buf.ends_with(b"\x1b\\") {
+        // The DA1 reply is the sync barrier: once it arrives, any OSC 11 reply
+        // has already been read, so we can stop without waiting out the deadline.
+        if ends_with_da1(&buf) {
             break;
         }
     }
 
     (!buf.is_empty()).then(|| String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// Read a single byte directly from `fd`, bypassing buffering. `None` on EOF or
+/// error.
+fn read_byte(fd: RawFd) -> Option<u8> {
+    let mut byte = 0u8;
+
+    // SAFETY: `byte` is a valid, writable single-byte buffer for the call.
+    let read = unsafe { libc::read(fd, std::ptr::from_mut(&mut byte).cast(), 1) };
+
+    (read == 1).then_some(byte)
+}
+
+/// Whether `buf` ends with a complete DA1 reply (`ESC [ … c`, parameters limited
+/// to digits, `;`, and `?`).
+fn ends_with_da1(buf: &[u8]) -> bool {
+    if buf.last() != Some(&b'c') {
+        return false;
+    }
+
+    match buf.windows(2).rposition(|pair| pair == b"\x1b[") {
+        Some(start) => buf[start + 2..buf.len() - 1]
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b';' | b'?')),
+        None => false,
+    }
 }
 
 /// True when `fd` has data ready within `timeout`.
@@ -263,5 +300,24 @@ mod tests {
     #[test]
     fn parses_two_digit_components() {
         assert_eq!(parse_osc11("rgb:00/80/ff"), Some((0, 128, 255)));
+    }
+
+    #[test]
+    fn parses_osc11_preceding_the_da1_barrier() {
+        // The read keeps the whole stream through DA1; the color is still found.
+        let reply = "\x1b]11;rgb:ffff/ffff/ffff\x1b\\\x1b[?6c";
+        assert_eq!(
+            parse_osc11(reply).map(|(r, g, b)| mode_from_rgb(r, g, b)),
+            Some(ThemeMode::Light)
+        );
+    }
+
+    #[test]
+    fn da1_barrier_recognizes_only_complete_replies() {
+        assert!(ends_with_da1(b"\x1b[?6c"));
+        assert!(ends_with_da1(b"\x1b]11;rgb:cccc/cccc/cccc\x1b\\\x1b[?1;2c"));
+        // A partial color reply ending in a hex `c` is not the barrier.
+        assert!(!ends_with_da1(b"\x1b]11;rgb:cccc/cccc/cccc"));
+        assert!(!ends_with_da1(b"\x1b[?6"));
     }
 }
