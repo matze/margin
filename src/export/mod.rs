@@ -6,7 +6,7 @@
 use serde::Serialize;
 
 use crate::anchor::Resolution;
-use crate::model::{AnnotationType, Status};
+use crate::model::{AnnotationType, Side, Status};
 use crate::review::ResolvedAnnotation;
 
 /// Errors from rendering the JSON view.
@@ -32,6 +32,9 @@ struct AnnotationView<'a> {
     annotation_type: Option<AnnotationType>,
     body: &'a str,
     revision_id: &'a str,
+    /// Which diff side the anchor lives on. For `old`, the annotation marks a
+    /// deleted line and `location` refers to the revision's parent.
+    side: Side,
     /// Current 1-based location `[start, end]`, or null when orphaned.
     location: Option<[u32; 2]>,
     /// True when the anchor no longer resolves, regardless of `status` — so a
@@ -52,6 +55,7 @@ impl<'a> From<&'a ResolvedAnnotation> for AnnotationView<'a> {
             annotation_type: annotation.annotation_type,
             body: &annotation.body,
             revision_id: &annotation.anchor.revision_id.0,
+            side: annotation.anchor.side,
             location: match resolved.location {
                 Resolution::Located { start, end } => Some([start.get(), end.get()]),
                 Resolution::Orphaned => None,

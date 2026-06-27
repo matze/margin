@@ -48,18 +48,13 @@ fn discover_backend(forced: Option<Kind>) -> Result<Backend> {
     Backend::discover(&cwd, forced).context("locating a git or jj repository")
 }
 
-/// Discover the repository root for the current directory.
-fn repo_root() -> Result<PathBuf> {
-    Ok(discover_backend(None)?.root().to_path_buf())
-}
-
 /// `margin list`: the agent's read interface. `--json` emits the stable folded
 /// projection; otherwise one human-readable line per annotation.
 fn run_list(open_only: bool, json: bool) -> Result<()> {
-    let root = repo_root()?;
-    let store = Store::open(&root);
+    let backend = discover_backend(None)?;
+    let store = Store::open(backend.root());
 
-    let shown: Vec<ResolvedAnnotation> = resolve_all(&store, &root)?
+    let shown: Vec<ResolvedAnnotation> = resolve_all(&store, backend.root(), &backend)?
         .into_iter()
         .filter(|a| !open_only || a.status == Status::Open)
         .collect();

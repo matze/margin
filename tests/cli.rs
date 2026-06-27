@@ -164,6 +164,61 @@ fn status_wont_do_and_reopen() {
 }
 
 #[test]
+fn old_side_anchor_resolves_against_parent() {
+    let repo = tempfile::tempdir().unwrap();
+    let path = repo.path();
+
+    git(path, &["init", "-q", "-b", "main"]);
+    git(path, &["config", "user.email", "t@example.com"]);
+    git(path, &["config", "user.name", "T"]);
+
+    // v1 has a line that v2 deletes.
+    let parent_source = "fn a() {}\nlet doomed = 1;\nfn b() {}\n";
+    std::fs::write(path.join("f.rs"), parent_source).unwrap();
+    git(path, &["add", "-A"]);
+    git(path, &["commit", "-q", "-m", "v1"]);
+
+    std::fs::write(path.join("f.rs"), "fn a() {}\nfn b() {}\n").unwrap();
+    git(path, &["add", "-A"]);
+    git(path, &["commit", "-q", "-m", "v2"]);
+    let rev = RevisionId(git(path, &["rev-parse", "HEAD"]));
+
+    // An old-side annotation on the deleted line, captured from the parent.
+    let store = Store::open(path);
+    let id = AnnotationId::new();
+    let anchor = capture(
+        RepoRelPath("f.rs".into()),
+        rev,
+        Side::Old,
+        parent_source,
+        LineNumber::new(2).unwrap(),
+        LineNumber::new(2).unwrap(),
+        CONTEXT_LINES,
+    )
+    .unwrap();
+    store
+        .append(&Event::now(
+            id,
+            Actor::Reviewer,
+            EventKind::AnnotationCreated {
+                anchor,
+                body: "why was this removed?".into(),
+                annotation_type: Some(AnnotationType::Question),
+            },
+        ))
+        .unwrap();
+
+    // It resolves against the parent revision (where the line lives), not the
+    // working tree, so it locates rather than orphaning.
+    let (ok, json) = margin(path, &["list", "--json"]);
+    assert!(ok);
+    assert!(json.contains("\"side\": \"old\""), "json: {json}");
+    assert!(json.contains("let doomed = 1;"), "json: {json}");
+    assert!(json.contains("\"location\": ["), "json: {json}");
+    assert!(json.contains("\"orphaned\": false"), "json: {json}");
+}
+
+#[test]
 fn orphaned_annotation_is_flagged() {
     let repo = tempfile::tempdir().unwrap();
     let path = repo.path();

@@ -258,24 +258,28 @@ fn editor_anchor_row(app: &App) -> Option<usize> {
         return None;
     };
 
-    let (file, end_line) = match &editor.mode {
-        EditorMode::Create(target) => (&target.path, target.end.get()),
+    let (file, side, end_line) = match &editor.mode {
+        EditorMode::Create(target) => (&target.path, target.side, target.end.get()),
         EditorMode::Edit(id) => {
             let anchor = &app.annotation(*id)?.annotation.anchor;
-            (&anchor.file, anchor.end_line.get())
+            (&anchor.file, anchor.side, anchor.end_line.get())
         }
     };
 
-    row_of_new_line(app, app.file_index_of(file)?, end_line)
+    row_of_line(app, app.file_index_of(file)?, side, end_line)
 }
 
-/// The diff row whose new-side line number is `new_line` within `file_index`.
-fn row_of_new_line(app: &App, file_index: usize, new_line: u32) -> Option<usize> {
+/// The diff row whose `side` line number is `line_no` within `file_index`.
+fn row_of_line(app: &App, file_index: usize, side: Side, line_no: u32) -> Option<usize> {
     app.rows.iter().position(|row| {
         matches!(
             row,
             Row::Line { file_index: fi, line, .. }
-                if *fi == file_index && line.new_no.map(|n| n.get()) == Some(new_line)
+                if *fi == file_index
+                    && match side {
+                        Side::New => line.new_no,
+                        Side::Old => line.old_no,
+                    }.map(|n| n.get()) == Some(line_no)
         )
     })
 }
@@ -339,7 +343,7 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
             continue;
         };
 
-        if let Some(row) = row_of_new_line(app, file_index, anchor.end_line.get()) {
+        if let Some(row) = row_of_line(app, file_index, anchor.side, anchor.end_line.get()) {
             attachments
                 .entry(row)
                 .or_default()
@@ -526,7 +530,14 @@ fn render_diff_line(
 ) -> Line<'static> {
     let palette = app.palette;
 
-    let line_marker = line.new_no.and_then(|no| app.line_marker(file_index, no.get()));
+    let line_marker = match line.kind {
+        DiffLineKind::Removed => line
+            .old_no
+            .and_then(|no| app.line_marker(file_index, Side::Old, no.get())),
+        _ => line
+            .new_no
+            .and_then(|no| app.line_marker(file_index, Side::New, no.get())),
+    };
 
     let base_bg = if line_marker.is_some() {
         palette.annotated_line_bg

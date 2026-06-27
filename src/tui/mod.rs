@@ -552,8 +552,8 @@ mod tests {
         let a_index = app.file_index_of(&RepoRelPath(std::path::PathBuf::from("a.rs"))).unwrap();
         let b_index = app.file_index_of(&b_path).unwrap();
 
-        assert!(app.line_marker(b_index, 1).is_some(), "b.rs:1 carries the marker");
-        assert!(app.line_marker(a_index, 1).is_none(), "a.rs:1 must not inherit it");
+        assert!(app.line_marker(b_index, Side::New, 1).is_some(), "b.rs:1 carries the marker");
+        assert!(app.line_marker(a_index, Side::New, 1).is_none(), "a.rs:1 must not inherit it");
     }
 
     #[test]

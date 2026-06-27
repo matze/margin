@@ -9,8 +9,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::anchor::{resolve, Resolution};
-use crate::model::{Annotation, AnnotationId, Status};
+use crate::model::{Annotation, AnnotationId, Side, Status};
 use crate::store::{Store, StoreError};
+use crate::vcs::Vcs;
 
 /// An annotation paired with its location in the current working tree.
 #[derive(Debug, Clone)]
@@ -30,19 +31,22 @@ impl ResolvedAnnotation {
     }
 }
 
-/// Resolve every stored annotation against the working tree under `repo_root`,
-/// sorted by file then current (or recorded) start line.
+/// Resolve every stored annotation, sorted by file then current (or recorded)
+/// start line. New-side anchors resolve against the working tree under
+/// `repo_root`; old-side (deleted-line) anchors resolve against the annotated
+/// revision's parent via `vcs`.
 pub fn resolve_all(
     store: &Store,
     repo_root: impl AsRef<Path>,
+    vcs: &dyn Vcs,
 ) -> Result<Vec<ResolvedAnnotation>, StoreError> {
     let repo_root = repo_root.as_ref();
-    let mut cache: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
+    let mut cache: BTreeMap<SourceKey, Option<String>> = BTreeMap::new();
 
     let mut resolved: Vec<ResolvedAnnotation> = store
         .annotations()?
         .into_values()
-        .map(|annotation| resolve_one(annotation, repo_root, &mut cache))
+        .map(|annotation| resolve_one(annotation, repo_root, vcs, &mut cache))
         .collect();
 
     resolved.sort_by(|a, b| {
@@ -66,15 +70,35 @@ pub fn current_start(resolved: &ResolvedAnnotation) -> Option<u32> {
     }
 }
 
+/// Identifies the source text an anchor resolves against, so it can be cached:
+/// the working tree for new-side anchors, a revision's parent for old-side.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum SourceKey {
+    WorkingTree(PathBuf),
+    Parent { revision: String, path: PathBuf },
+}
+
 fn resolve_one(
     annotation: Annotation,
     repo_root: &Path,
-    cache: &mut BTreeMap<PathBuf, Option<String>>,
+    vcs: &dyn Vcs,
+    cache: &mut BTreeMap<SourceKey, Option<String>>,
 ) -> ResolvedAnnotation {
-    let path = &annotation.anchor.file.0;
-    let contents = cache
-        .entry(path.clone())
-        .or_insert_with(|| std::fs::read_to_string(repo_root.join(path)).ok());
+    let anchor = &annotation.anchor;
+    let path = &anchor.file.0;
+
+    let key = match anchor.side {
+        Side::New => SourceKey::WorkingTree(path.clone()),
+        Side::Old => SourceKey::Parent {
+            revision: anchor.revision_id.0.clone(),
+            path: path.clone(),
+        },
+    };
+
+    let contents = cache.entry(key).or_insert_with(|| match anchor.side {
+        Side::New => std::fs::read_to_string(repo_root.join(path)).ok(),
+        Side::Old => vcs.file_at_parent(&anchor.revision_id, &anchor.file).ok(),
+    });
 
     let location = match contents {
         Some(contents) => resolve(&annotation.anchor, contents),

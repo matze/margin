@@ -192,7 +192,7 @@ pub struct App {
 
     annotations: Vec<ResolvedAnnotation>,
     commit_markers: HashMap<RevisionId, Marker>,
-    line_markers: HashMap<(usize, u32), LineMarker>,
+    line_markers: HashMap<(usize, Side, u32), LineMarker>,
 
     /// Full message of the selected commit, shown when the sidebar is focused.
     pub current_message: String,
@@ -275,18 +275,17 @@ impl App {
         self.commit_markers.get(revision).copied()
     }
 
-    /// Marker for a diff line by its file and new-side line number, if annotated.
-    pub fn line_marker(&self, file_index: usize, new_line: u32) -> Option<LineMarker> {
-        self.line_markers.get(&(file_index, new_line)).copied()
+    /// Marker for a diff line by its file, side, and line number, if annotated.
+    pub fn line_marker(&self, file_index: usize, side: Side, line: u32) -> Option<LineMarker> {
+        self.line_markers.get(&(file_index, side, line)).copied()
     }
 
-    /// The current diff's index for `file`, matched on its displayed path.
+    /// The current diff's index for `file`, matched on either side's path so an
+    /// old-side (deleted-line) anchor still resolves across a rename.
     pub fn file_index_of(&self, file: &RepoRelPath) -> Option<usize> {
-        self.diff
-            .as_ref()?
-            .files
-            .iter()
-            .position(|diff| diff.display_path() == Some(file))
+        self.diff.as_ref()?.files.iter().position(|diff| {
+            diff.display_path() == Some(file) || diff.old_path.as_ref() == Some(file)
+        })
     }
 
     /// The currently selected revision.
@@ -302,6 +301,22 @@ impl App {
         }
     }
 
+    /// The side and line number the diff cursor anchors to: the old-side number
+    /// on a removed line, the new-side number otherwise.
+    fn cursor_side_line(&self) -> Option<(Side, u32)> {
+        match self.rows.get(self.diff_cursor)? {
+            Row::Line { line, .. } => {
+                let side = line.kind.side();
+                let number = match side {
+                    Side::New => line.new_no,
+                    Side::Old => line.old_no,
+                }?;
+                Some((side, number.get()))
+            }
+            _ => None,
+        }
+    }
+
     /// The diff file index of the row under the diff cursor, if any.
     fn cursor_file_index(&self) -> Option<usize> {
         match self.rows.get(self.diff_cursor)? {
@@ -312,16 +327,16 @@ impl App {
 
     /// The annotation covering the diff cursor's line on the current commit.
     pub fn annotation_at_cursor(&self) -> Option<&ResolvedAnnotation> {
-        let new_line = self.cursor_new_line()?;
+        let (side, line) = self.cursor_side_line()?;
         let file_index = self.cursor_file_index()?;
         let revision = &self.current_revision()?.id;
 
         self.annotations.iter().find(|resolved| {
             let anchor = &resolved.annotation.anchor;
             anchor.revision_id == *revision
-                && anchor.side == Side::New
+                && anchor.side == side
                 && self.file_index_of(&anchor.file) == Some(file_index)
-                && (anchor.start_line.get()..=anchor.end_line.get()).contains(&new_line)
+                && (anchor.start_line.get()..=anchor.end_line.get()).contains(&line)
         })
     }
 
@@ -766,47 +781,64 @@ impl App {
         self.annotations.iter().collect()
     }
 
-    /// Resolve the current selection to a new-side annotation target.
+    /// Resolve the current selection to an annotation target. A selection of
+    /// purely removed lines anchors the old side (deleted lines); anything with
+    /// additions anchors the new side, dropping any removed lines.
     fn selection_target(&self) -> Option<Target> {
         let revision = self.current_revision()?.id.clone();
         let (lo, hi) = self.selection();
 
-        let lines: Vec<(usize, u32)> = (lo..=hi)
+        let changes: Vec<(usize, Side, u32)> = (lo..=hi)
             .filter_map(|index| match self.rows.get(index)? {
                 Row::Line {
                     file_index, line, ..
-                } => line.new_no.map(|no| (*file_index, no.get())),
+                } if line.kind != DiffLineKind::Context => {
+                    let side = line.kind.side();
+                    let number = match side {
+                        Side::New => line.new_no,
+                        Side::Old => line.old_no,
+                    }?;
+                    Some((*file_index, side, number.get()))
+                }
                 _ => None,
             })
             .collect();
 
-        let (file_index, _) = *lines.first()?;
-        let same_file: Vec<u32> = lines
+        let (file_index, _, _) = *changes.first()?;
+        let side = if changes.iter().all(|(_, s, _)| *s == Side::Old) {
+            Side::Old
+        } else {
+            Side::New
+        };
+
+        let same_file: Vec<u32> = changes
             .iter()
-            .filter(|(idx, _)| *idx == file_index)
-            .map(|(_, no)| *no)
+            .filter(|(idx, s, _)| *idx == file_index && *s == side)
+            .map(|(_, _, no)| *no)
             .collect();
 
         let start = LineNumber::new(*same_file.iter().min()?)?;
         let end = LineNumber::new(*same_file.iter().max()?)?;
-        let path = self.file_path(file_index)?;
+        let path = self.file_path(file_index, side)?;
 
         Some(Target {
             path,
             revision,
-            side: Side::New,
+            side,
             start,
             end,
         })
     }
 
-    fn file_path(&self, file_index: usize) -> Option<RepoRelPath> {
-        self.diff
-            .as_ref()?
-            .files
-            .get(file_index)?
-            .display_path()
-            .cloned()
+    /// The path of file `file_index` on the given side: the old path anchors a
+    /// deleted-line annotation, the displayed (new) path everything else.
+    fn file_path(&self, file_index: usize, side: Side) -> Option<RepoRelPath> {
+        let file = self.diff.as_ref()?.files.get(file_index)?;
+
+        match side {
+            Side::New => file.display_path().cloned(),
+            Side::Old => file.old_path.clone(),
+        }
     }
 
     fn editor_char(&mut self, c: char) {
@@ -868,10 +900,13 @@ impl App {
     }
 
     fn persist_created(&self, target: &Target, editor: &Editor) -> Result<&'static str, String> {
-        let source = self
-            .backend
-            .file_at(&target.revision, &target.path)
-            .map_err(|error| format!("reading file at revision: {error}"))?;
+        // Old-side anchors capture from the parent revision, where the deleted
+        // line still exists; new-side from the revision itself.
+        let source = match target.side {
+            Side::New => self.backend.file_at(&target.revision, &target.path),
+            Side::Old => self.backend.file_at_parent(&target.revision, &target.path),
+        }
+        .map_err(|error| format!("reading file at revision: {error}"))?;
 
         let anchor = capture(
             target.path.clone(),
@@ -1015,7 +1050,8 @@ impl App {
     }
 
     fn refresh_annotations(&mut self) {
-        self.annotations = resolve_all(&self.store, &self.repo_root).unwrap_or_default();
+        self.annotations =
+            resolve_all(&self.store, &self.repo_root, &self.backend).unwrap_or_default();
         self.recompute_commit_markers();
     }
 
@@ -1034,13 +1070,13 @@ impl App {
     }
 
     fn recompute_line_markers(&mut self) {
-        let mut markers: HashMap<(usize, u32), LineMarker> = HashMap::new();
+        let mut markers: HashMap<(usize, Side, u32), LineMarker> = HashMap::new();
 
         if let Some(revision) = self.current_revision().map(|r| r.id.clone()) {
             for resolved in &self.annotations {
                 let anchor = &resolved.annotation.anchor;
 
-                if anchor.revision_id != revision || anchor.side != Side::New {
+                if anchor.revision_id != revision {
                     continue;
                 }
 
@@ -1054,7 +1090,7 @@ impl App {
                 for line in start..=end {
                     let position = span_position(line, start, end);
                     markers
-                        .entry((file_index, line))
+                        .entry((file_index, anchor.side, line))
                         .and_modify(|existing| {
                             existing.marker = existing.marker.merge(marker);
                             // Overlapping ranges collapse to a plain glyph.
