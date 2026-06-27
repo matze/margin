@@ -81,16 +81,37 @@ pub enum Command {
         json: bool,
     },
 
-    /// Mark an annotation resolved (the agent's write interface).
-    Resolve {
+    /// Change an annotation's state (the agent's write interface).
+    Status {
         /// Annotation id or unique id prefix.
         id: String,
-        /// Optional reply recorded with the resolution.
+        /// Target state: `resolved`, `wont-do`, or `open` (reopen).
+        state: AnnotationState,
+        /// Reply recorded with a `resolved`/`wont-do` transition.
         #[arg(long)]
         reply: Option<String>,
+        /// Reason recorded when reopening (`open`).
+        #[arg(long)]
+        reason: Option<String>,
+        /// Revision that addressed the annotation (for `resolved`); inferred from
+        /// the current `HEAD`/`@` when omitted.
+        #[arg(long = "addressed-by")]
+        addressed_by: Option<String>,
     },
 
     /// Install the agent skill that teaches a coding agent the `margin` CLI
     /// contract (into `~/.claude/skills/`).
     InstallSkill,
+}
+
+/// The state an annotation can be moved to via `margin status`.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum AnnotationState {
+    /// The agent addressed the annotation.
+    Resolved,
+    /// The agent declined the annotation.
+    #[value(name = "wont-do")]
+    WontDo,
+    /// Reopen a resolved/declined annotation for re-review.
+    Open,
 }

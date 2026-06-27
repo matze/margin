@@ -26,9 +26,11 @@ The CLI is the contract: the agent reads the review and writes back its
 resolutions through it, never by parsing the store directly.
 
 ```sh
-margin list --json                # the review as machine-readable JSON (read)
-margin list [--open]              # same, one human-readable line per annotation
-margin resolve <id> [--reply ...] # mark one resolved (write)
+margin list --json                        # the review as machine-readable JSON (read)
+margin list [--open]                      # same, one human-readable line per annotation
+margin status <id> resolved [--reply ..]  # mark one addressed (write)
+margin status <id> wont-do  [--reply ..]  # decline one
+margin status <id> open     [--reason ..] # reopen for re-review
 ```
 
 `margin list --json` folds the event log into current per-annotation state

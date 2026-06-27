@@ -4,7 +4,7 @@ description: >-
   Address code-review annotations left in the margin TUI. Use when the user asks
   to address/handle/resolve review annotations, margin annotations, or review
   comments, or says "I made an annotation". Reads annotations via
-  `margin list --json` and writes back via `margin resolve`.
+  `margin list --json` and writes back via `margin status`.
 ---
 
 # Addressing margin review annotations
@@ -41,20 +41,27 @@ never read or edit the NDJSON store under `.margin/` directly.
 4. **Verify** before resolving — run the project's checks (e.g. `cargo test`,
    `cargo clippy --all-targets`, or whatever the repo uses).
 
-5. **Resolve** each addressed annotation, recording what you did:
+5. **Record the outcome** for each annotation:
 
    ```
-   margin resolve <id-or-prefix> --reply "what changed and why"
+   margin status <id-or-prefix> resolved --reply "what changed and why"
+   margin status <id-or-prefix> wont-do  --reply "why you declined"
    ```
 
    `<id-or-prefix>` is the `id` field or any unique prefix of it (e.g. the first
    8 chars). The `--reply` is shown back to the reviewer — make it specific.
+   Mark items you addressed `resolved` and items you deliberately skipped
+   `wont-do`; do not leave them silently open.
+
+   `resolved` also records the change that addressed the annotation. Pass
+   `--addressed-by <revision>` when you know it (e.g. the commit you just made);
+   otherwise `margin` infers the current working revision.
 
 ## JSON fields (`margin list --json`)
 
 | field           | meaning |
 |-----------------|---------|
-| `id`            | UUID; pass to `resolve` (prefix accepted). |
+| `id`            | UUID; pass to `status` (prefix accepted). |
 | `file`          | Path, relative to repo root. |
 | `status`        | `open` \| `resolved` \| `wont_do` \| `orphaned`. |
 | `type`          | `fix` \| `question` \| `suggestion` \| `nit` \| `praise` (omitted = plain note). |
@@ -66,6 +73,8 @@ never read or edit the NDJSON store under `.margin/` directly.
 
 ## Rules
 
-- Resolve only what you actually addressed. If you decline an item, leave it open
-  and tell the user why rather than resolving it silently.
-- One `resolve` call per annotation, each with its own `--reply`.
+- Mark `resolved` only what you actually addressed; mark `wont-do` what you
+  deliberately declined, with a `--reply` saying why. Don't resolve an item you
+  didn't address.
+- One `status` call per annotation, each with its own `--reply`.
+- Reopen a resolved item for re-review with `margin status <id> open`.

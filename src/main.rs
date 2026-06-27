@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 
-use cli::{Cli, Command};
+use cli::{AnnotationState, Cli, Command};
 use margin::export::{render_json, status_label, type_label};
-use margin::model::{Actor, AnnotationId, Event, EventKind, Status};
+use margin::model::{Actor, AnnotationId, Event, EventKind, RevisionId, Status};
 use margin::review::{current_start, resolve_all, ResolvedAnnotation};
 use margin::store::Store;
 use margin::vcs::{Backend, Base, Kind, Vcs};
@@ -17,7 +17,13 @@ fn main() -> Result<()> {
 
     match &cli.command {
         Some(Command::List { open, json }) => run_list(*open, *json),
-        Some(Command::Resolve { id, reply }) => run_resolve(id, reply.clone()),
+        Some(Command::Status {
+            id,
+            state,
+            reply,
+            reason,
+            addressed_by,
+        }) => run_status(id, *state, reply.clone(), reason.clone(), addressed_by.clone()),
         Some(Command::InstallSkill) => run_install_skill(),
         None => run_tui(&cli),
     }
@@ -117,18 +123,58 @@ fn run_install_skill() -> Result<()> {
     Ok(())
 }
 
-fn run_resolve(id_prefix: &str, reply: Option<String>) -> Result<()> {
-    let root = repo_root()?;
-    let store = Store::open(&root);
+/// `margin status <id> <state>`: the agent's write interface. Transitions are
+/// recorded as events and folded on the next read.
+fn run_status(
+    id_prefix: &str,
+    state: AnnotationState,
+    reply: Option<String>,
+    reason: Option<String>,
+    addressed_by: Option<String>,
+) -> Result<()> {
+    let backend = discover_backend(None)?;
+    let store = Store::open(backend.root());
 
     let id = find_annotation(&store, id_prefix)?;
-    store.append(&Event::now(
-        id,
-        Actor::Agent,
-        EventKind::AgentResolved { reply },
-    ))?;
 
-    println!("resolved {}", id.0);
+    match state {
+        AnnotationState::Resolved => {
+            store.append(&Event::now(id, Actor::Agent, EventKind::AgentResolved { reply }))?;
+
+            // Decision 12: link the resolution to the change that addressed it.
+            // The agent supplies `--addressed-by`; otherwise margin infers the
+            // current working revision.
+            let revision = match addressed_by {
+                Some(rev) => Some(RevisionId(rev)),
+                None => backend.head().ok(),
+            };
+
+            if let Some(revision_id) = revision {
+                store.append(&Event::now(
+                    id,
+                    Actor::Agent,
+                    EventKind::AgentAddressedBy { revision_id, reply: None },
+                ))?;
+            }
+
+            println!("resolved {}", id.0);
+        }
+
+        AnnotationState::WontDo => {
+            store.append(&Event::now(id, Actor::Agent, EventKind::AgentWontDo { reply }))?;
+            println!("wont-do {}", id.0);
+        }
+
+        AnnotationState::Open => {
+            store.append(&Event::now(
+                id,
+                Actor::Reviewer,
+                EventKind::ReviewerReopened { reason },
+            ))?;
+            println!("reopened {}", id.0);
+        }
+    }
+
     Ok(())
 }
 

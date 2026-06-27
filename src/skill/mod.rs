@@ -1,7 +1,7 @@
 //! Installing the agent skill that documents the `margin` CLI contract.
 //!
 //! The skill (`SKILL.md`) teaches a coding agent how to read annotations via
-//! `margin list --json` and write back via `margin resolve`. It is embedded in
+//! `margin list --json` and write back via `margin status`. It is embedded in
 //! the binary so `margin install-skill` can drop it into the user's skills
 //! directory regardless of the working directory.
 
