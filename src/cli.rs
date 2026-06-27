@@ -68,4 +68,8 @@ pub enum Command {
         #[arg(long)]
         reply: Option<String>,
     },
+
+    /// Install the agent skill that teaches a coding agent the `margin` CLI
+    /// contract (into `~/.claude/skills/`).
+    InstallSkill,
 }

@@ -9,6 +9,7 @@ pub mod config;
 pub mod export;
 pub mod model;
 pub mod review;
+pub mod skill;
 pub mod store;
 pub mod tui;
 pub mod vcs;

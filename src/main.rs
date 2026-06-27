@@ -18,6 +18,7 @@ fn main() -> Result<()> {
     match &cli.command {
         Some(Command::List { open, json }) => run_list(*open, *json),
         Some(Command::Resolve { id, reply }) => run_resolve(id, reply.clone()),
+        Some(Command::InstallSkill) => run_install_skill(),
         None => run_tui(&cli),
     }
 }
@@ -93,6 +94,24 @@ fn list_line(resolved: &ResolvedAnnotation) -> String {
         "{short}  {location}  [{}] {kind}  {body}",
         status_label(resolved.status)
     )
+}
+
+/// `margin install-skill`: drop the embedded agent skill into the user's
+/// `~/.claude/skills/` so any repo's coding agent learns the `margin` contract.
+fn run_install_skill() -> Result<()> {
+    let home = std::env::var_os("HOME").context("HOME is not set")?;
+    let skills_root = PathBuf::from(home).join(".claude").join("skills");
+
+    let outcome = margin::skill::install(&skills_root)
+        .with_context(|| format!("installing skill into {}", skills_root.display()))?;
+
+    let verb = match outcome {
+        margin::skill::Outcome::Created(_) => "installed",
+        margin::skill::Outcome::Updated(_) => "updated",
+    };
+    println!("{verb} skill at {}", outcome.path().display());
+
+    Ok(())
 }
 
 fn run_resolve(id_prefix: &str, reply: Option<String>) -> Result<()> {
