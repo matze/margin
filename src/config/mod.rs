@@ -19,6 +19,8 @@ pub struct Config {
     pub fallback: Option<usize>,
     /// `"light"` or `"dark"` to force a theme.
     pub theme: Option<String>,
+    /// `"git"` or `"jj"` to force a backend instead of auto-detecting.
+    pub vcs: Option<String>,
 }
 
 impl Config {

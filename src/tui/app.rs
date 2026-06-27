@@ -16,7 +16,7 @@ use crate::model::{
 use crate::review::{resolve_all, ResolvedAnnotation};
 use crate::store::Store;
 use crate::vcs::{
-    Base, ChangeKind, CommitDiff, DiffLine, DiffLineKind, GitBackend, Hunk, ListingSource, Revision,
+    Backend, Base, ChangeKind, CommitDiff, DiffLine, DiffLineKind, Hunk, ListingSource, Revision,
     Vcs,
 };
 
@@ -171,7 +171,7 @@ pub struct LineMarker {
 
 /// The whole application.
 pub struct App {
-    backend: GitBackend,
+    backend: Backend,
     repo_root: PathBuf,
     store: Store,
 
@@ -213,7 +213,7 @@ pub struct App {
 impl App {
     /// Build the application: list revisions for `base` and load the first one.
     pub fn new(
-        backend: GitBackend,
+        backend: Backend,
         base: Base,
         theme_mode: ThemeMode,
     ) -> Result<Self, crate::vcs::VcsError> {

@@ -217,6 +217,18 @@ fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area
 
     let mut lines: Vec<Line> = Vec::with_capacity(height);
 
+    if app.rows.is_empty() {
+        let note = Line::from(Span::styled(
+            "no changes in this revision",
+            Style::default().fg(app.palette.gutter_fg).bg(pane_bg),
+        ));
+        frame.render_widget(
+            Paragraph::new(note).style(Style::default().bg(pane_bg)),
+            body,
+        );
+        return;
+    }
+
     for index in app.diff_top..app.rows.len() {
         if lines.len() >= height {
             break;

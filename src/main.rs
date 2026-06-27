@@ -10,7 +10,7 @@ use margin::export::{render_json, status_label, type_label};
 use margin::model::{Actor, AnnotationId, Event, EventKind, Status};
 use margin::review::{current_start, resolve_all, ResolvedAnnotation};
 use margin::store::Store;
-use margin::vcs::{Base, GitBackend};
+use margin::vcs::{Backend, Base, Kind, Vcs};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -26,8 +26,7 @@ fn main() -> Result<()> {
 /// Launch the TUI: discover the repo, list commits per `--base`/`-n`, detect
 /// the theme (or honor `--theme`).
 fn run_tui(cli: &Cli) -> Result<()> {
-    let cwd = std::env::current_dir().context("reading current directory")?;
-    let backend = GitBackend::discover(&cwd).context("locating git repository")?;
+    let backend = discover_backend(cli.vcs.map(Into::into))?;
 
     let base = match &cli.base {
         Some(branch) => Base::Branch(branch.clone()),
@@ -37,11 +36,15 @@ fn run_tui(cli: &Cli) -> Result<()> {
     margin::tui::run(backend, base, cli.theme.map(Into::into))
 }
 
+/// Discover the backend for the current directory, honoring a `--vcs` override.
+fn discover_backend(forced: Option<Kind>) -> Result<Backend> {
+    let cwd = std::env::current_dir().context("reading current directory")?;
+    Backend::discover(&cwd, forced).context("locating a git or jj repository")
+}
+
 /// Discover the repository root for the current directory.
 fn repo_root() -> Result<PathBuf> {
-    let cwd = std::env::current_dir().context("reading current directory")?;
-    let backend = GitBackend::discover(&cwd).context("locating git repository")?;
-    Ok(backend.root().to_path_buf())
+    Ok(discover_backend(None)?.root().to_path_buf())
 }
 
 /// `margin list`: the agent's read interface. `--json` emits the stable folded

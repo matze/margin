@@ -6,7 +6,12 @@ use std::path::Path;
 use std::process::Command;
 
 use margin::model::{RepoRelPath, RevisionId};
-use margin::vcs::{Base, ChangeKind, DiffLineKind, GitBackend, ListingSource, Vcs};
+use margin::vcs::{Backend, Base, ChangeKind, DiffLineKind, Kind, ListingSource, Vcs};
+
+/// Discover a forced-git backend for `path`.
+fn git_backend(path: &Path) -> Backend {
+    Backend::discover(path, Some(Kind::Git)).unwrap()
+}
 
 /// Run a git command in `dir`, asserting success.
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -60,7 +65,7 @@ fn revisions_lists_commits_unique_to_base() {
     let first = commit(path, "Add limiter", &[("src/limiter.rs", "fn a() {}\n")]);
     let second = commit(path, "Wire config", &[("src/config.rs", "fn b() {}\n")]);
 
-    let backend = GitBackend::discover(path).unwrap();
+    let backend = git_backend(path);
     let revisions = backend.revisions(&Base::Branch("main".into())).unwrap();
 
     assert!(matches!(revisions.source, ListingSource::Range { .. }));
@@ -80,7 +85,7 @@ fn auto_base_falls_back_to_recent_when_unresolvable() {
     git(path, &["branch", "-m", "main", "wip-branch"]);
     commit(path, "only", &[("a.txt", "1\n")]);
 
-    let backend = GitBackend::discover(path).unwrap();
+    let backend = git_backend(path);
     let revisions = backend.revisions(&Base::Auto { fallback: 10 }).unwrap();
 
     assert_eq!(revisions.source, ListingSource::RecentFallback);
@@ -99,7 +104,7 @@ fn diff_reports_added_modified_and_line_numbers() {
         &[("src/lib.rs", "one\nTWO\nthree\nfour\n"), ("new.rs", "x\n")],
     );
 
-    let backend = GitBackend::discover(path).unwrap();
+    let backend = git_backend(path);
     let diff = backend.diff(&rev).unwrap();
 
     assert_eq!(diff.files.len(), 2);
@@ -143,7 +148,7 @@ fn diff_of_root_commit_uses_empty_tree() {
     let path = repo.path();
     let rev = commit(path, "root", &[("first.rs", "a\nb\n")]);
 
-    let backend = GitBackend::discover(path).unwrap();
+    let backend = git_backend(path);
     let diff = backend.diff(&rev).unwrap();
 
     assert_eq!(diff.files.len(), 1);
@@ -164,7 +169,7 @@ fn merge_commit_is_flagged_and_diffable() {
     git(path, &["merge", "-q", "--no-ff", "-m", "merge side", "side"]);
 
     let merge = RevisionId(git(path, &["rev-parse", "HEAD"]));
-    let backend = GitBackend::discover(path).unwrap();
+    let backend = git_backend(path);
 
     // The work under review is unique to main..feature, including the merge.
     let listed = backend.revisions(&Base::Branch("main".into())).unwrap();
@@ -183,7 +188,7 @@ fn file_at_reads_content_at_revision() {
     let first = commit(path, "v1", &[("f.txt", "version one\n")]);
     commit(path, "v2", &[("f.txt", "version two\n")]);
 
-    let backend = GitBackend::discover(path).unwrap();
+    let backend = git_backend(path);
     let content = backend
         .file_at(&first, &RepoRelPath("f.txt".into()))
         .unwrap();

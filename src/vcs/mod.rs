@@ -3,14 +3,17 @@
 //! A [`Vcs`] backend exposes just enough of a version-control system for review:
 //! the list of commits/revisions under review, a single revision's own diff
 //! against its parent, and file content at a revision (for anchoring). The
-//! `git` backend lands first; `jj` implements the same trait later.
+//! `git` and `jj` backends implement this trait; [`Backend`] dispatches between
+//! them, preferring `jj` when a jj repo is present.
 //!
 //! Per PRD §6 the tool shells out to the `git`/`jj` CLIs rather than linking a
 //! library — simpler, fewer build deps, revisited only if performance hurts.
 
 mod git;
+mod jj;
+mod parse;
 
-pub use git::GitBackend;
+use std::path::Path;
 
 use jiff::Timestamp;
 
@@ -155,6 +158,9 @@ impl DiffLineKind {
 
 /// Minimum capabilities a backend must provide (PRD §6).
 pub trait Vcs {
+    /// The discovered repository root.
+    fn root(&self) -> &Path;
+
     /// Commits under review for the sidebar, plus how the listing was derived.
     fn revisions(&self, base: &Base) -> Result<Revisions, VcsError>;
 
@@ -163,4 +169,86 @@ pub trait Vcs {
 
     /// File content at a revision, for anchoring and context capture.
     fn file_at(&self, revision: &RevisionId, path: &RepoRelPath) -> Result<String, VcsError>;
+
+    /// The full commit message (subject and body) for a revision.
+    fn message(&self, revision: &RevisionId) -> Result<String, VcsError>;
+}
+
+/// Which backend a repository uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Git,
+    Jj,
+}
+
+impl Kind {
+    /// Parse a `--vcs` / config `vcs` value; unknown values yield `None`.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "git" => Some(Kind::Git),
+            "jj" => Some(Kind::Jj),
+            _ => None,
+        }
+    }
+}
+
+/// A concrete VCS backend, dispatched statically.
+#[derive(Debug, Clone)]
+pub enum Backend {
+    Git(git::Backend),
+    Jj(jj::Backend),
+}
+
+impl Backend {
+    /// Select a backend for `start`. `forced` honors `--vcs`/config; otherwise
+    /// jj is preferred when a jj repo resolves, falling back to git.
+    pub fn discover(start: impl AsRef<Path>, forced: Option<Kind>) -> Result<Self, VcsError> {
+        let start = start.as_ref();
+
+        match forced {
+            Some(Kind::Git) => Ok(Backend::Git(git::Backend::discover(start)?)),
+            Some(Kind::Jj) => Ok(Backend::Jj(jj::Backend::discover(start)?)),
+            None => match jj::Backend::discover(start) {
+                Ok(backend) => Ok(Backend::Jj(backend)),
+                Err(_) => Ok(Backend::Git(git::Backend::discover(start)?)),
+            },
+        }
+    }
+}
+
+impl Vcs for Backend {
+    fn root(&self) -> &Path {
+        match self {
+            Backend::Git(backend) => backend.root(),
+            Backend::Jj(backend) => backend.root(),
+        }
+    }
+
+    fn revisions(&self, base: &Base) -> Result<Revisions, VcsError> {
+        match self {
+            Backend::Git(backend) => backend.revisions(base),
+            Backend::Jj(backend) => backend.revisions(base),
+        }
+    }
+
+    fn diff(&self, revision: &RevisionId) -> Result<CommitDiff, VcsError> {
+        match self {
+            Backend::Git(backend) => backend.diff(revision),
+            Backend::Jj(backend) => backend.diff(revision),
+        }
+    }
+
+    fn file_at(&self, revision: &RevisionId, path: &RepoRelPath) -> Result<String, VcsError> {
+        match self {
+            Backend::Git(backend) => backend.file_at(revision, path),
+            Backend::Jj(backend) => backend.file_at(revision, path),
+        }
+    }
+
+    fn message(&self, revision: &RevisionId) -> Result<String, VcsError> {
+        match self {
+            Backend::Git(backend) => backend.message(revision),
+            Backend::Jj(backend) => backend.message(revision),
+        }
+    }
 }

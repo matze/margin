@@ -19,7 +19,7 @@ use anyhow::Result;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
-use crate::vcs::{Base, GitBackend};
+use crate::vcs::{Backend, Base};
 use highlight::Highlighter;
 
 /// Poll interval; bounds how long a draw can lag a terminal resize.
@@ -27,7 +27,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Launch the TUI against `backend`, listing commits per `base`. `theme` is the
 /// explicit `--theme`/config override, if any; otherwise the terminal is queried.
-pub fn run(backend: GitBackend, base: Base, theme: Option<ThemeMode>) -> Result<()> {
+pub fn run(backend: Backend, base: Base, theme: Option<ThemeMode>) -> Result<()> {
     // Resolve the theme before the alternate screen: some terminals (e.g.
     // WezTerm) only answer the OSC 11 background query on the normal screen.
     // Raw mode is needed to read the reply.
@@ -59,7 +59,7 @@ fn resolve_theme(explicit: Option<ThemeMode>) -> ThemeMode {
 
 fn build_and_run(
     terminal: &mut ratatui::DefaultTerminal,
-    backend: GitBackend,
+    backend: Backend,
     base: Base,
     theme: ThemeMode,
 ) -> Result<()> {
@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn renders_without_panicking() {
         let repo = fixture();
-        let backend = GitBackend::discover(repo.path()).unwrap();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
 
@@ -145,10 +145,32 @@ mod tests {
     }
 
     #[test]
+    fn empty_revision_shows_no_changes_note() {
+        let repo = fixture();
+        let path = repo.path();
+        git(path, &["commit", "-q", "--allow-empty", "-m", "empty change"]);
+
+        let backend = Backend::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        let rendered = terminal.backend().to_string();
+        assert!(
+            rendered.contains("no changes in this revision"),
+            "empty revision should show the no-changes note:\n{rendered}"
+        );
+    }
+
+    #[test]
     #[ignore = "visual preview; run with --ignored --nocapture"]
     fn dump_preview() {
         let repo = fixture();
-        let backend = GitBackend::discover(repo.path()).unwrap();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         app.apply(keymap::Action::SelectCommit);
@@ -176,7 +198,7 @@ mod tests {
         // cursor on it, that visual row must carry the cursor background so the
         // cursor stays visible on non-code lines.
         let repo = fixture();
-        let backend = GitBackend::discover(repo.path()).unwrap();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit); // focus diff, cursor on row 0 (File)
 
@@ -212,7 +234,7 @@ mod tests {
         git(path, &["add", "-A"]);
         git(path, &["commit", "-q", "-m", "change"]);
 
-        let backend = GitBackend::discover(path).unwrap();
+        let backend = Backend::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::NextChange);
@@ -237,7 +259,7 @@ mod tests {
         use super::app::Focus;
 
         let repo = fixture();
-        let backend = GitBackend::discover(repo.path()).unwrap();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         // Two annotations on different lines of the same commit.
@@ -266,7 +288,7 @@ mod tests {
         use crate::vcs::DiffLineKind;
 
         let repo = fixture();
-        let backend = GitBackend::discover(repo.path()).unwrap();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
 
@@ -281,7 +303,7 @@ mod tests {
     #[test]
     fn half_page_uses_the_recorded_viewport_height() {
         let repo = fixture();
-        let backend = GitBackend::discover(repo.path()).unwrap();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
 
@@ -298,7 +320,7 @@ mod tests {
     #[test]
     fn select_and_annotate_writes_an_event() {
         let repo = fixture();
-        let backend = GitBackend::discover(repo.path()).unwrap();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         // Focus the diff, move onto an added line, annotate it.
@@ -323,7 +345,7 @@ mod tests {
     #[test]
     fn annotating_an_already_annotated_line_edits_in_place() {
         let repo = fixture();
-        let backend = GitBackend::discover(repo.path()).unwrap();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         app.apply(keymap::Action::SelectCommit);
@@ -351,7 +373,7 @@ mod tests {
     /// Build an app on the fixture with a single annotation on the first added
     /// line of the feature commit.
     fn app_with_annotation(repo: &Path) -> App {
-        let backend = GitBackend::discover(repo).unwrap();
+        let backend = Backend::discover(repo, Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         app.apply(keymap::Action::SelectCommit);
@@ -380,7 +402,7 @@ mod tests {
             .unwrap();
 
         // Reopen via the overview, which focuses the selected annotation.
-        let backend = GitBackend::discover(repo.path()).unwrap();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         assert_eq!(app.annotations()[0].status, Status::Resolved);
 
