@@ -1041,12 +1041,32 @@ impl App {
         self.diff_cursor = self.diff_cursor.min(self.rows.len().saturating_sub(1));
     }
 
-    /// The `(file_index, new_start)` key of the hunk containing the cursor.
+    /// The `(file_index, new_start)` key of the hunk the cursor sits in.
+    ///
+    /// Resolved by line number rather than the nearest header, so that inside a
+    /// merged block — where inner headers are dropped — expanding near the top
+    /// targets the leading hunk and near the bottom the trailing one.
     fn focused_hunk_key(&self) -> Option<(usize, u32)> {
-        (0..=self.diff_cursor).rev().find_map(|index| match self.rows.get(index)? {
-            Row::Hunk { file_index, new_start, .. } => Some((*file_index, *new_start)),
-            _ => None,
-        })
+        let (file_index, new_no, old_no) = match self.rows.get(self.diff_cursor)? {
+            Row::Hunk { file_index, new_start, .. } => (*file_index, Some(*new_start), None),
+            Row::Line { file_index, line, .. } => {
+                (*file_index, line.new_no.map(LineNumber::get), line.old_no.map(LineNumber::get))
+            }
+            _ => return None,
+        };
+
+        let hunks = &self.diff.as_ref()?.files.get(file_index)?.hunks;
+        let hunk = hunks
+            .iter()
+            .rev()
+            .find(|hunk| match (new_no, old_no) {
+                (Some(new_no), _) => hunk.new_start <= new_no,
+                (None, Some(old_no)) => hunk.old_start <= old_no,
+                (None, None) => false,
+            })
+            .or_else(|| hunks.first())?;
+
+        Some((file_index, hunk.new_start))
     }
 
     fn refresh_annotations(&mut self) {
@@ -1150,34 +1170,65 @@ fn build_rows(
             change: file.change,
         });
 
-        for hunk in &file.hunks {
+        let file_lines = contents.get(&file_index);
+        let extra_of = |hunk: &Hunk| expansions.get(&(file_index, hunk.new_start)).copied().unwrap_or(0);
+
+        let mut start = 0;
+
+        while start < file.hunks.len() {
+            // Extend the group while each gap to the next hunk is fully covered
+            // by the neighbouring expansions, so they render as one block.
+            let mut end = start;
+
+            while end + 1 < file.hunks.len()
+                && gap_covered(
+                    &file.hunks[end],
+                    &file.hunks[end + 1],
+                    extra_of(&file.hunks[end]),
+                    extra_of(&file.hunks[end + 1]),
+                    file_lines,
+                )
+            {
+                end += 1;
+            }
+
+            let head = &file.hunks[start];
+            let tail = &file.hunks[end];
+
             rows.push(Row::Hunk {
                 file_index,
-                old_start: hunk.old_start,
-                old_count: hunk.old_count,
-                new_start: hunk.new_start,
-                new_count: hunk.new_count,
-                section: hunk.section.clone(),
+                old_start: head.old_start,
+                old_count: (tail.old_start + tail.old_count).saturating_sub(head.old_start),
+                new_start: head.new_start,
+                new_count: (tail.new_start + tail.new_count).saturating_sub(head.new_start),
+                section: head.section.clone(),
             });
 
-            let extra = expansions.get(&(file_index, hunk.new_start)).copied().unwrap_or(0);
-            let file_lines = contents.get(&file_index);
-
-            for context in context_lines(hunk, extra, file_lines, ContextSide::Before) {
+            for context in context_lines(head, extra_of(head), file_lines, ContextSide::Before) {
                 rows.push(Row::Line { file_index, extension: extension.clone(), line: context });
             }
 
-            for line in &hunk.lines {
-                rows.push(Row::Line {
-                    file_index,
-                    extension: extension.clone(),
-                    line: line.clone(),
-                });
+            for member in start..=end {
+                for line in &file.hunks[member].lines {
+                    rows.push(Row::Line {
+                        file_index,
+                        extension: extension.clone(),
+                        line: line.clone(),
+                    });
+                }
+
+                if member < end {
+                    for context in gap_context(&file.hunks[member], &file.hunks[member + 1], file_lines) {
+                        rows.push(Row::Line { file_index, extension: extension.clone(), line: context });
+                    }
+                }
             }
 
-            for context in context_lines(hunk, extra, file_lines, ContextSide::After) {
+            for context in context_lines(tail, extra_of(tail), file_lines, ContextSide::After) {
                 rows.push(Row::Line { file_index, extension: extension.clone(), line: context });
             }
+
+            start = end + 1;
         }
     }
 
@@ -1236,6 +1287,44 @@ fn context_lines(
     lines
 }
 
+/// Number of unchanged new-side lines between two consecutive hunks.
+fn gap_size(prev: &Hunk, next: &Hunk) -> u32 {
+    next.new_start.saturating_sub(prev.new_start + prev.new_count)
+}
+
+/// Whether the expansions on either side reveal the whole gap between two
+/// consecutive hunks, so they should render as a single merged block. Requires
+/// file contents, since a merged block must show every line it spans.
+fn gap_covered(prev: &Hunk, next: &Hunk, extra_prev: u32, extra_next: u32, file_lines: Option<&Vec<String>>) -> bool {
+    file_lines.is_some() && extra_prev + extra_next >= gap_size(prev, next)
+}
+
+/// Every unchanged line filling the gap between two consecutive hunks, in
+/// display order. Used to stitch a merged block together continuously.
+fn gap_context(prev: &Hunk, next: &Hunk, file_lines: Option<&Vec<String>>) -> Vec<DiffLine> {
+    let Some(file_lines) = file_lines else {
+        return Vec::new();
+    };
+
+    let first_new = prev.new_start + prev.new_count;
+    let first_old = prev.old_start + prev.old_count;
+    let has_old = prev.old_start > 0 && next.old_start > 0;
+
+    (first_new..next.new_start)
+        .enumerate()
+        .filter_map(|(step, new_no)| {
+            let content = file_lines.get(new_no.checked_sub(1)? as usize)?.clone();
+
+            Some(DiffLine {
+                kind: DiffLineKind::Context,
+                old_no: has_old.then(|| first_old + step as u32).and_then(LineNumber::new),
+                new_no: LineNumber::new(new_no),
+                content,
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1246,5 +1335,72 @@ mod tests {
         assert_eq!(span_position(2, 2, 6), SpanPosition::Start);
         assert_eq!(span_position(4, 2, 6), SpanPosition::Middle);
         assert_eq!(span_position(6, 2, 6), SpanPosition::End);
+    }
+
+    /// A one-line changed hunk at `new_start` (also its old position), so the
+    /// gap between two such hunks is `next.new_start - prev.new_start - 1`.
+    fn changed_hunk(new_start: u32) -> Hunk {
+        Hunk {
+            old_start: new_start,
+            old_count: 1,
+            new_start,
+            new_count: 1,
+            section: String::new(),
+            lines: vec![DiffLine {
+                kind: DiffLineKind::Added,
+                old_no: None,
+                new_no: LineNumber::new(new_start),
+                content: format!("changed {new_start}"),
+            }],
+        }
+    }
+
+    fn diff_with(hunks: Vec<Hunk>) -> CommitDiff {
+        CommitDiff {
+            revision: RevisionId("rev".into()),
+            files: vec![crate::vcs::FileDiff {
+                old_path: Some(RepoRelPath("f.rs".into())),
+                new_path: Some(RepoRelPath("f.rs".into())),
+                change: ChangeKind::Modified,
+                hunks,
+            }],
+        }
+    }
+
+    fn new_numbers(rows: &[Row]) -> Vec<u32> {
+        rows.iter()
+            .filter_map(|row| match row {
+                Row::Line { line, .. } => line.new_no.map(LineNumber::get),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn overlapping_context_merges_into_one_block() {
+        // Hunks at new lines 3 and 7 leave a 3-line gap (4,5,6).
+        let diff = diff_with(vec![changed_hunk(3), changed_hunk(7)]);
+        let contents = HashMap::from([(0, (1..=10).map(|n| format!("line {n}")).collect())]);
+
+        // 2 + 2 covers the 3-line gap.
+        let expansions = HashMap::from([((0, 3), 2), ((0, 7), 2)]);
+        let rows = build_rows(&diff, &expansions, &contents);
+
+        // One merged header, no duplicates, continuous lines 1..=9.
+        assert_eq!(rows.iter().filter(|r| matches!(r, Row::Hunk { .. })).count(), 1);
+        assert_eq!(new_numbers(&rows), (1..=9).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn separated_hunks_keep_their_own_headers() {
+        let diff = diff_with(vec![changed_hunk(3), changed_hunk(20)]);
+        let contents = HashMap::from([(0, (1..=30).map(|n| format!("line {n}")).collect())]);
+
+        // The 16-line gap stays partly hidden, so the hunks do not merge.
+        let expansions = HashMap::from([((0, 3), 2), ((0, 20), 2)]);
+        let rows = build_rows(&diff, &expansions, &contents);
+
+        assert_eq!(rows.iter().filter(|r| matches!(r, Row::Hunk { .. })).count(), 2);
+        assert_eq!(new_numbers(&rows), vec![1, 2, 3, 4, 5, 18, 19, 20, 21, 22]);
     }
 }
