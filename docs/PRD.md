@@ -132,8 +132,8 @@ sanctioned interface to it.
   stdout — per annotation: id, file, status, type, body, current resolved
   location, snippet. The agent never parses the raw event log or re-derives the
   fold semantics.
-- **Write: `margin resolve <id>` (and reopen).** Resolutions are written back as
-  events, folded on next read.
+- **Write: `margin status <id> <state>` (resolve, wont-do, reopen).** Transitions
+  are written back as events, folded on next read.
 
 The CLI — not a generated file — is the contract: it is deterministic, versioned,
 and folds the log behind a single boundary, so the agent stays decoupled from the

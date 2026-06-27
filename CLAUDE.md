@@ -2,7 +2,7 @@
 
 A local TUI for code-review annotations over git/jj. Reviewers annotate a
 commit's diff; a coding agent consumes the annotations through the `margin` CLI
-(`list --json` to read, `resolve` to write back).
+(`list --json` to read, `status` to write back).
 
 ## Layout
 

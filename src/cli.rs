@@ -20,10 +20,6 @@ pub struct Cli {
     #[arg(short = 'n', long = "number", global = true, default_value_t = 50)]
     pub number: usize,
 
-    /// Open straight into a specific commit's diff.
-    #[arg(long, global = true)]
-    pub rev: Option<String>,
-
     /// Force a theme instead of detecting it from the terminal.
     #[arg(long, global = true, value_enum)]
     pub theme: Option<ThemeChoice>,
