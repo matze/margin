@@ -29,3 +29,8 @@ uuid = { version = "1.23.4", features = ["v7", "serde"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+# Optimize dependencies (syntect's fancy-regex compiles its grammars lazily on
+# first highlight; unoptimized that is ~1s for Markdown).
+[profile.dev.package."*"]
+opt-level = 3
