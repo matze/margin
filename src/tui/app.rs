@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::anchor::{capture, CONTEXT_LINES};
+use crate::anchor::{capture, Resolution, CONTEXT_LINES};
 use crate::model::{
     Actor, AnnotationId, AnnotationType, Event, EventKind, LineNumber, RepoRelPath, RevisionId,
     Side, Status,
@@ -1109,6 +1109,12 @@ impl App {
                 let Some(file_index) = self.file_index_of(&anchor.file) else {
                     continue;
                 };
+
+                // A vanished anchor has no honest line to mark; the annotation
+                // stays in the sidebar but earns no stale diff gutter marker.
+                if matches!(resolved.location, Resolution::Orphaned) {
+                    continue;
+                }
 
                 let marker = Marker::from_status(resolved.status);
                 let (start, end) = (anchor.start_line.get(), anchor.end_line.get());
