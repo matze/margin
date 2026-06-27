@@ -86,8 +86,13 @@ fn list_line(resolved: &ResolvedAnnotation) -> String {
     let short = &id[..8];
     let file = resolved.annotation.anchor.file.0.display();
 
+    // A vanished anchor whose status isn't already `orphaned` (i.e. a
+    // resolved/declined item) still gets flagged so it isn't silently lost.
+    let lost = current_start(resolved).is_none() && resolved.status != Status::Orphaned;
+
     let location = match current_start(resolved) {
         Some(line) => format!("{file}:{line}"),
+        None if lost => format!("{file}:? (orphaned)"),
         None => format!("{file}:?"),
     };
 

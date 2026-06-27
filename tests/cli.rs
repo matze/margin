@@ -204,3 +204,59 @@ fn orphaned_annotation_is_flagged() {
     assert!(ok);
     assert!(out.contains("[orphaned]"), "list: {out}");
 }
+
+#[test]
+fn resolved_then_vanished_is_flagged_orphaned() {
+    let repo = tempfile::tempdir().unwrap();
+    let path = repo.path();
+
+    git(path, &["init", "-q", "-b", "main"]);
+    git(path, &["config", "user.email", "t@example.com"]);
+    git(path, &["config", "user.name", "T"]);
+    let source = "fn target() {}\n";
+    std::fs::write(path.join("f.rs"), source).unwrap();
+    git(path, &["add", "-A"]);
+    git(path, &["commit", "-q", "-m", "init"]);
+    let rev = RevisionId(git(path, &["rev-parse", "HEAD"]));
+
+    let store = Store::open(path);
+    let id = AnnotationId::new();
+    let anchor = capture(
+        RepoRelPath("f.rs".into()),
+        rev,
+        Side::New,
+        source,
+        LineNumber::new(1).unwrap(),
+        LineNumber::new(1).unwrap(),
+        CONTEXT_LINES,
+    )
+    .unwrap();
+    store
+        .append(&Event::now(
+            id,
+            Actor::Reviewer,
+            EventKind::AnnotationCreated {
+                anchor,
+                body: "rename".into(),
+                annotation_type: None,
+            },
+        ))
+        .unwrap();
+
+    let short = &id.0.simple().to_string()[..8];
+    let (ok, _) = margin(path, &["status", short, "resolved"]);
+    assert!(ok);
+
+    // The resolved line vanishes from the working tree.
+    std::fs::write(path.join("f.rs"), "fn other() {}\n").unwrap();
+
+    // Status stays resolved, but the gone anchor is surfaced, not silently null.
+    let (_, json) = margin(path, &["list", "--json"]);
+    assert!(json.contains("\"status\": \"resolved\""), "json: {json}");
+    assert!(json.contains("\"orphaned\": true"), "json: {json}");
+    assert!(json.contains("\"location\": null"), "json: {json}");
+
+    let (_, line) = margin(path, &["list"]);
+    assert!(line.contains("(orphaned)"), "list: {line}");
+    assert!(line.contains("[resolved]"), "list: {line}");
+}

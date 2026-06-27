@@ -34,6 +34,9 @@ struct AnnotationView<'a> {
     revision_id: &'a str,
     /// Current 1-based location `[start, end]`, or null when orphaned.
     location: Option<[u32; 2]>,
+    /// True when the anchor no longer resolves, regardless of `status` — so a
+    /// resolved/declined annotation whose lines vanished is still legible.
+    orphaned: bool,
     anchored_text: &'a [String],
     addressed_by: Vec<&'a str>,
 }
@@ -53,6 +56,7 @@ impl<'a> From<&'a ResolvedAnnotation> for AnnotationView<'a> {
                 Resolution::Located { start, end } => Some([start.get(), end.get()]),
                 Resolution::Orphaned => None,
             },
+            orphaned: matches!(resolved.location, Resolution::Orphaned),
             anchored_text: &annotation.anchor.anchored_text,
             addressed_by: annotation.addressed_by.iter().map(|r| r.0.as_str()).collect(),
         }
