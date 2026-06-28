@@ -58,5 +58,5 @@ jobs:
       - if: runner.os == 'Linux'
         uses: taiki-e/install-action@v2
         with:
-          tool: jj
+          tool: jj-cli
       - run: cargo nextest run --all-features --all-targets
