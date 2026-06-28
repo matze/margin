@@ -1,0 +1,4 @@
+# Normalize line endings to LF in the working tree on every platform so
+# embedded text (e.g. include_str! of SKILL.md) stays byte-identical. Without
+# this, a Windows checkout rewrites text files with CRLF.
+* text=auto eol=lf
