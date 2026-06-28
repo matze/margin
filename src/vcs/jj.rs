@@ -33,7 +33,9 @@ impl Backend {
 
         let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-        Ok(Self { root: PathBuf::from(root) })
+        Ok(Self {
+            root: PathBuf::from(root),
+        })
     }
 
     /// Run `jj` with `args`, returning stdout on success.
@@ -120,7 +122,14 @@ impl Vcs for Backend {
     }
 
     fn file_at(&self, revision: &RevisionId, path: &RepoRelPath) -> Result<String, VcsError> {
-        self.run(&["file", "show", "-r", &revision.0, "--", &path.0.to_string_lossy()])
+        self.run(&[
+            "file",
+            "show",
+            "-r",
+            &revision.0,
+            "--",
+            &path.0.to_string_lossy(),
+        ])
     }
 
     fn file_at_parent(
@@ -129,7 +138,14 @@ impl Vcs for Backend {
         path: &RepoRelPath,
     ) -> Result<String, VcsError> {
         let parent = format!("{}-", revision.0);
-        self.run(&["file", "show", "-r", &parent, "--", &path.0.to_string_lossy()])
+        self.run(&[
+            "file",
+            "show",
+            "-r",
+            &parent,
+            "--",
+            &path.0.to_string_lossy(),
+        ])
     }
 
     fn head(&self) -> Result<RevisionId, VcsError> {
@@ -194,7 +210,10 @@ mod tests {
 
         jj(path, &["git", "init", "."]);
         jj(path, &["config", "set", "--repo", "user.name", "T"]);
-        jj(path, &["config", "set", "--repo", "user.email", "t@example.com"]);
+        jj(
+            path,
+            &["config", "set", "--repo", "user.email", "t@example.com"],
+        );
 
         std::fs::write(path.join("file.txt"), "v1\n").unwrap();
         jj(path, &["describe", "-m", "first change"]);

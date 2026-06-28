@@ -106,9 +106,7 @@ fn fold_one(id: AnnotationId, timeline: Vec<Event>) -> Option<Annotation> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{
-        Actor, EventId, LineNumber, RepoRelPath, RevisionId, Side,
-    };
+    use crate::model::{Actor, EventId, LineNumber, RepoRelPath, RevisionId, Side};
     use jiff::Timestamp;
     use std::path::PathBuf;
 
