@@ -859,4 +859,170 @@ mod tests {
             "annotation body shows in split view:\n{rendered}"
         );
     }
+
+    /// A feature commit touching two files (`alpha.rs`, `beta.rs`), so the file
+    /// panel has more than one entry to navigate.
+    fn multi_file_fixture() -> tempfile::TempDir {
+        let repo = tempfile::tempdir().unwrap();
+        let path = repo.path();
+        git(path, &["init", "-q", "-b", "main"]);
+        git(path, &["config", "user.email", "t@example.com"]);
+        git(path, &["config", "user.name", "T"]);
+        std::fs::write(path.join("base.txt"), "base\n").unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "base"]);
+
+        git(path, &["checkout", "-q", "-b", "feature"]);
+        std::fs::write(path.join("alpha.rs"), "fn a() {}\n").unwrap();
+        std::fs::write(path.join("beta.rs"), "fn b() {}\n").unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "two files"]);
+        repo
+    }
+
+    fn multi_file_app(repo: &Path) -> App {
+        let backend = Backend::discover(repo, Some(crate::vcs::Kind::Git)).unwrap();
+        App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap()
+    }
+
+    /// Cycle focus until the file panel has it.
+    fn focus_file_panel(app: &mut App) {
+        while !matches!(app.focus, super::app::Focus::Files) {
+            app.apply(keymap::Action::FocusToggle);
+        }
+    }
+
+    #[test]
+    fn tab_reaches_the_file_panel_but_overview_skips_it() {
+        use super::app::{Focus, SidebarView};
+
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        // The cycle is Diff → Files → Sidebar → Diff, so a tab out of the
+        // sidebar lands on the diff, not the file panel.
+        focus_file_panel(&mut app);
+        app.apply(keymap::Action::FocusToggle);
+        assert!(
+            matches!(app.focus, Focus::Sidebar),
+            "tab leaves the file panel for the sidebar"
+        );
+        app.apply(keymap::Action::FocusToggle);
+        assert!(
+            matches!(app.focus, Focus::Diff),
+            "tab out of the sidebar goes to the diff, skipping the file panel"
+        );
+
+        // The annotation overview has no file panel, so tab cycles between just
+        // the sidebar and the diff and never reaches the panel.
+        app.apply(keymap::Action::ToggleOverview);
+        assert!(matches!(app.sidebar, SidebarView::Annotations { .. }));
+        for _ in 0..4 {
+            app.apply(keymap::Action::FocusToggle);
+            assert!(
+                !matches!(app.focus, Focus::Files),
+                "overview tab skips the file panel"
+            );
+        }
+    }
+
+    #[test]
+    fn moving_the_file_panel_reveals_the_file_in_the_diff() {
+        use super::app::{Focus, Row};
+
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        focus_file_panel(&mut app);
+        app.apply(keymap::Action::Down);
+
+        assert!(
+            matches!(app.focus, Focus::Files),
+            "moving keeps focus in the panel"
+        );
+        assert!(
+            matches!(app.rows[app.diff_cursor], Row::File { .. }),
+            "the diff cursor lands on a file header"
+        );
+        let headers_before = app.rows[..app.diff_cursor]
+            .iter()
+            .filter(|row| matches!(row, Row::File { .. }))
+            .count();
+        assert_eq!(
+            headers_before, 1,
+            "the cursor sits on the second file's header"
+        );
+    }
+
+    #[test]
+    fn scrolling_the_diff_highlights_the_file_in_the_panel() {
+        use super::app::{Focus, Row};
+
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        while !matches!(app.focus, Focus::Diff) {
+            app.apply(keymap::Action::FocusToggle);
+        }
+        assert_eq!(app.file_cursor, 0, "the diff starts in the first file");
+
+        // Scroll down until the diff cursor reaches the second file's header.
+        let second_header = app
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| matches!(row, Row::File { .. }))
+            .nth(1)
+            .map(|(index, _)| index)
+            .unwrap();
+
+        while app.diff_cursor < second_header {
+            app.apply(keymap::Action::Down);
+        }
+
+        assert_eq!(
+            app.file_cursor, 1,
+            "reaching the second file highlights it in the panel"
+        );
+    }
+
+    #[test]
+    fn enter_in_the_file_panel_focuses_the_diff() {
+        use super::app::{Focus, Row};
+
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        focus_file_panel(&mut app);
+        app.apply(keymap::Action::Down);
+        app.apply(keymap::Action::Confirm);
+
+        assert!(
+            matches!(app.focus, Focus::Diff),
+            "enter drops into the diff"
+        );
+        assert!(matches!(app.rows[app.diff_cursor], Row::File { .. }));
+    }
+
+    #[test]
+    fn file_panel_lists_changed_paths() {
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        let rendered = terminal.backend().to_string();
+        assert!(
+            rendered.contains("files ·"),
+            "file panel header is shown:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("alpha.rs") && rendered.contains("beta.rs"),
+            "file panel lists both changed files:\n{rendered}"
+        );
+    }
 }

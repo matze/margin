@@ -16,8 +16,8 @@ use crate::model::{
 use crate::review::{resolve_all, ResolvedAnnotation};
 use crate::store::Store;
 use crate::vcs::{
-    Backend, Base, ChangeKind, CommitDiff, DiffLine, DiffLineKind, Hunk, ListingSource, Revision,
-    Vcs,
+    Backend, Base, ChangeKind, CommitDiff, DiffLine, DiffLineKind, FileDiff, Hunk, ListingSource,
+    Revision, Vcs,
 };
 
 use super::keymap::Action;
@@ -33,6 +33,7 @@ pub const COMMIT_MESSAGE_VIEWPORT: usize = 8;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Sidebar,
+    Files,
     Diff,
 }
 
@@ -187,6 +188,8 @@ pub struct App {
     revisions: Vec<Revision>,
     pub listing_source: ListingSource,
     pub commit_cursor: usize,
+    /// Cursor into the changed-file panel beneath the commit list.
+    pub file_cursor: usize,
 
     diff: Option<CommitDiff>,
     pub rows: Vec<Row>,
@@ -238,6 +241,7 @@ impl App {
             revisions: listing.revisions,
             listing_source: listing.source,
             commit_cursor: 0,
+            file_cursor: 0,
             diff: None,
             rows: Vec::new(),
             diff_cursor: 0,
@@ -295,6 +299,23 @@ impl App {
     /// Marker for a diff line by its file, side, and line number, if annotated.
     pub fn line_marker(&self, file_index: usize, side: Side, line: u32) -> Option<LineMarker> {
         self.line_markers.get(&(file_index, side, line)).copied()
+    }
+
+    /// The files changed in the loaded commit, for the file panel.
+    pub fn changed_files(&self) -> &[FileDiff] {
+        self.diff.as_ref().map_or(&[], |diff| &diff.files)
+    }
+
+    /// The `app.rows` index of the `file_index`-th file header. File headers are
+    /// emitted in `diff.files` order, so this maps a file to its diff row even
+    /// when the file has no hunks (a pure rename or mode change).
+    fn file_header_row(&self, file_index: usize) -> Option<usize> {
+        self.rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| matches!(row, Row::File { .. }))
+            .nth(file_index)
+            .map(|(index, _)| index)
     }
 
     /// The current diff's index for `file`, matched on either side's path so an
@@ -419,7 +440,8 @@ impl App {
             Overlay::Editor(_) => {}
             Overlay::None => match self.focus {
                 Focus::Sidebar => self.move_sidebar(Direction::Up),
-                Focus::Diff => self.diff_cursor = self.diff_cursor.saturating_sub(1),
+                Focus::Files => self.move_files(Direction::Up),
+                Focus::Diff => self.set_diff_cursor(self.diff_cursor.saturating_sub(1)),
             },
         }
     }
@@ -430,10 +452,8 @@ impl App {
             Overlay::Editor(_) => {}
             Overlay::None => match self.focus {
                 Focus::Sidebar => self.move_sidebar(Direction::Down),
-                Focus::Diff => {
-                    let max = self.rows.len().saturating_sub(1);
-                    self.diff_cursor = (self.diff_cursor + 1).min(max);
-                }
+                Focus::Files => self.move_files(Direction::Down),
+                Focus::Diff => self.set_diff_cursor(self.diff_cursor + 1),
             },
         }
     }
@@ -456,6 +476,41 @@ impl App {
         }
     }
 
+    /// Move the file-panel cursor and reveal that file in the diff.
+    fn move_files(&mut self, direction: Direction) {
+        let max = self.changed_files().len().saturating_sub(1);
+        self.file_cursor = step_index(self.file_cursor, direction, max);
+        self.reveal_file();
+    }
+
+    /// Scroll the diff to the selected file's header without changing focus, so
+    /// the file panel can be browsed with the diff following.
+    fn reveal_file(&mut self) {
+        if let Some(row) = self.file_header_row(self.file_cursor) {
+            self.diff_cursor = row;
+        }
+    }
+
+    /// Jump from the file panel into the diff at the selected file.
+    fn jump_to_file(&mut self) {
+        self.reveal_file();
+        self.focus = Focus::Diff;
+    }
+
+    /// Move the diff cursor and keep the file panel pointed at the file the
+    /// cursor now sits in, so scrolling the diff highlights the matching file.
+    fn set_diff_cursor(&mut self, row: usize) {
+        let max = self.rows.len().saturating_sub(1);
+        self.diff_cursor = row.min(max);
+        self.file_cursor = self
+            .rows
+            .iter()
+            .take(self.diff_cursor + 1)
+            .filter(|row| matches!(row, Row::File { .. }))
+            .count()
+            .saturating_sub(1);
+    }
+
     /// Half-viewport paging: the diff cursor when the diff is focused, or the
     /// commit-message footer when the sidebar is. No-op while an overlay is open.
     fn move_page(&mut self, direction: Direction) {
@@ -464,15 +519,14 @@ impl App {
         }
 
         match self.focus {
-            Focus::Sidebar => self.scroll_message(direction),
+            Focus::Sidebar | Focus::Files => self.scroll_message(direction),
             Focus::Diff => {
                 let step = (self.diff_viewport_height / 2).max(1);
-                let max = self.rows.len().saturating_sub(1);
 
-                self.diff_cursor = match direction {
+                self.set_diff_cursor(match direction {
                     Direction::Up => self.diff_cursor.saturating_sub(step),
-                    Direction::Down => (self.diff_cursor + step).min(max),
-                };
+                    Direction::Down => self.diff_cursor + step,
+                });
             }
         }
     }
@@ -549,6 +603,7 @@ impl App {
         match (self.focus, &self.sidebar) {
             (Focus::Sidebar, SidebarView::Annotations { .. }) => self.jump_to_annotation(),
             (Focus::Sidebar, SidebarView::Commits) => self.select_commit(),
+            (Focus::Files, _) => self.jump_to_file(),
             (Focus::Diff, _) => self.begin_annotation(),
         }
     }
@@ -598,11 +653,21 @@ impl App {
         self.focus = Focus::Diff;
     }
 
+    /// Cycle focus Sidebar → Diff → Files → Sidebar. The file panel is skipped
+    /// when the sidebar shows the annotation overview or the commit has no
+    /// changed files, since the panel is not drawn then.
     fn toggle_focus(&mut self) {
         if matches!(self.overlay, Overlay::None) {
             self.focus = match self.focus {
                 Focus::Sidebar => Focus::Diff,
+                Focus::Diff
+                    if matches!(self.sidebar, SidebarView::Commits)
+                        && !self.changed_files().is_empty() =>
+                {
+                    Focus::Files
+                }
                 Focus::Diff => Focus::Sidebar,
+                Focus::Files => Focus::Sidebar,
             };
         }
     }
@@ -1010,6 +1075,7 @@ impl App {
     fn load_selected_commit(&mut self) {
         self.diff_cursor = 0;
         self.diff_top = 0;
+        self.file_cursor = 0;
         self.message_scroll = 0;
         self.selection_anchor = None;
         self.expansions.clear();

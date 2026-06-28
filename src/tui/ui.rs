@@ -83,7 +83,7 @@ pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
 /// diff, where annotations are shown inline beneath their anchor line.
 fn footer_height(app: &App) -> u16 {
     match app.focus {
-        Focus::Sidebar => app
+        Focus::Sidebar | Focus::Files => app
             .current_message
             .lines()
             .count()
@@ -93,23 +93,100 @@ fn footer_height(app: &App) -> u16 {
 }
 
 fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
-    let focused = matches!(app.focus, Focus::Sidebar);
+    match &app.sidebar {
+        SidebarView::Commits => {
+            let files_height = ((app.changed_files().len() + 1) as u16).clamp(2, area.height / 2);
+            let [top, bottom] =
+                Layout::vertical([Constraint::Min(0), Constraint::Length(files_height)])
+                    .areas(area);
+
+            render_list_pane(
+                frame,
+                top,
+                &commit_list_title(app),
+                commit_list_lines(app, Color::Reset),
+                matches!(app.focus, Focus::Sidebar),
+                app.palette,
+            );
+            render_list_pane(
+                frame,
+                bottom,
+                &format!("files · {}", app.changed_files().len()),
+                file_list_lines(app, Color::Reset),
+                matches!(app.focus, Focus::Files),
+                app.palette,
+            );
+        }
+        SidebarView::Annotations { cursor } => render_list_pane(
+            frame,
+            area,
+            &format!("annotations · {}", app.overview_annotations().len()),
+            annotation_list_lines(app, *cursor, Color::Reset),
+            matches!(app.focus, Focus::Sidebar),
+            app.palette,
+        ),
+    }
+}
+
+/// Render a titled list pane: a one-line header (reversed when focused) above a
+/// body of pre-built lines.
+fn render_list_pane(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    lines: Vec<Line<'static>>,
+    focused: bool,
+    palette: Palette,
+) {
     let [header, body] = pane_split(area);
     let pane_bg = Color::Reset;
 
-    let (title, lines) = match &app.sidebar {
-        SidebarView::Commits => (commit_list_title(app), commit_list_lines(app, pane_bg)),
-        SidebarView::Annotations { cursor } => (
-            format!("annotations · {}", app.overview_annotations().len()),
-            annotation_list_lines(app, *cursor, pane_bg),
-        ),
-    };
-
-    render_header(frame, header, &title, focused, app.palette);
+    render_header(frame, header, title, focused, palette);
     frame.render_widget(
         Paragraph::new(lines).style(Style::default().bg(pane_bg)),
         body,
     );
+}
+
+/// The changed-file panel: one row per file in the loaded commit, with its
+/// change glyph and repo-relative path.
+fn file_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
+    let files = app.changed_files();
+
+    if files.is_empty() {
+        return vec![Line::from(Span::styled(
+            " no changes",
+            Style::default().fg(app.palette.gutter_fg).bg(pane_bg),
+        ))];
+    }
+
+    files
+        .iter()
+        .enumerate()
+        .map(|(index, file)| {
+            let label = file
+                .display_path()
+                .map(|path| path.0.display().to_string())
+                .unwrap_or_else(|| "<unknown>".into());
+
+            let selected = index == app.file_cursor;
+            let base_style = if selected {
+                Style::default()
+                    .bg(app.palette.cursor_bg)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().bg(pane_bg)
+            };
+
+            Line::from(vec![
+                Span::styled(
+                    format!(" {} ", change_glyph(file.change)),
+                    base_style.fg(change_color(file.change, app.palette)),
+                ),
+                Span::styled(label, base_style.fg(app.palette.default_fg)),
+            ])
+        })
+        .collect()
 }
 
 fn commit_list_title(app: &App) -> String {
@@ -1275,8 +1352,15 @@ fn help_line(app: &App) -> Line<'static> {
             ("j/k ↑↓", "commits"),
             ("enter", "open"),
             ("ctrl-u/d", "scroll msg"),
-            ("tab", "diff"),
+            ("tab", "files"),
             ("g", "overview"),
+            ("q", "quit"),
+        ],
+        (Overlay::None, Focus::Files, _) => &[
+            ("j/k ↑↓", "files"),
+            ("enter", "open"),
+            ("tab", "diff"),
+            ("esc", "commits"),
             ("q", "quit"),
         ],
         (Overlay::None, Focus::Diff, _) => return diff_help_line(app),
@@ -1515,6 +1599,14 @@ fn change_glyph(change: ChangeKind) -> char {
         ChangeKind::Modified => 'M',
         ChangeKind::Deleted => 'D',
         ChangeKind::Renamed => 'R',
+    }
+}
+
+fn change_color(change: ChangeKind, palette: Palette) -> Color {
+    match change {
+        ChangeKind::Added => palette.sign_add,
+        ChangeKind::Deleted => palette.sign_remove,
+        ChangeKind::Modified | ChangeKind::Renamed => palette.default_fg,
     }
 }
 
