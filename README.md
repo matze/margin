@@ -48,3 +48,7 @@ optional.
 cargo build --release
 cargo test
 ```
+
+## License
+
+[MIT](./LICENSE)
