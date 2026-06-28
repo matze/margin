@@ -166,7 +166,10 @@ fn merge_commit_is_flagged_and_diffable() {
     git(path, &["checkout", "-q", "-b", "side"]);
     commit(path, "side change", &[("b.txt", "b\n")]);
     git(path, &["checkout", "-q", "feature"]);
-    git(path, &["merge", "-q", "--no-ff", "-m", "merge side", "side"]);
+    git(
+        path,
+        &["merge", "-q", "--no-ff", "-m", "merge side", "side"],
+    );
 
     let merge = RevisionId(git(path, &["rev-parse", "HEAD"]));
     let backend = git_backend(path);

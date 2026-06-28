@@ -23,7 +23,13 @@ fn main() -> Result<()> {
             reply,
             reason,
             addressed_by,
-        }) => run_status(id, *state, reply.clone(), reason.clone(), addressed_by.clone()),
+        }) => run_status(
+            id,
+            *state,
+            reply.clone(),
+            reason.clone(),
+            addressed_by.clone(),
+        ),
         Some(Command::InstallSkill) => run_install_skill(),
         None => run_tui(&cli),
     }
@@ -36,7 +42,9 @@ fn run_tui(cli: &Cli) -> Result<()> {
 
     let base = match &cli.base {
         Some(branch) => Base::Branch(branch.clone()),
-        None => Base::Auto { fallback: cli.number },
+        None => Base::Auto {
+            fallback: cli.number,
+        },
     };
 
     margin::tui::run(backend, base, cli.theme.map(Into::into))
@@ -139,7 +147,11 @@ fn run_status(
 
     match state {
         AnnotationState::Resolved => {
-            store.append(&Event::now(id, Actor::Agent, EventKind::AgentResolved { reply }))?;
+            store.append(&Event::now(
+                id,
+                Actor::Agent,
+                EventKind::AgentResolved { reply },
+            ))?;
 
             // Decision 12: link the resolution to the change that addressed it.
             // The agent supplies `--addressed-by`; otherwise margin infers the
@@ -153,7 +165,10 @@ fn run_status(
                 store.append(&Event::now(
                     id,
                     Actor::Agent,
-                    EventKind::AgentAddressedBy { revision_id, reply: None },
+                    EventKind::AgentAddressedBy {
+                        revision_id,
+                        reply: None,
+                    },
                 ))?;
             }
 
@@ -161,7 +176,11 @@ fn run_status(
         }
 
         AnnotationState::WontDo => {
-            store.append(&Event::now(id, Actor::Agent, EventKind::AgentWontDo { reply }))?;
+            store.append(&Event::now(
+                id,
+                Actor::Agent,
+                EventKind::AgentWontDo { reply },
+            ))?;
             println!("wont-do {}", id.0);
         }
 

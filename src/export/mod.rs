@@ -62,7 +62,11 @@ impl<'a> From<&'a ResolvedAnnotation> for AnnotationView<'a> {
             },
             orphaned: matches!(resolved.location, Resolution::Orphaned),
             anchored_text: &annotation.anchor.anchored_text,
-            addressed_by: annotation.addressed_by.iter().map(|r| r.0.as_str()).collect(),
+            addressed_by: annotation
+                .addressed_by
+                .iter()
+                .map(|r| r.0.as_str())
+                .collect(),
         }
     }
 }

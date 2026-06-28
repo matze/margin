@@ -141,14 +141,20 @@ mod tests {
             .unwrap();
 
         let rendered = terminal.backend().to_string();
-        assert!(rendered.contains("Add lib"), "sidebar should list the commit");
+        assert!(
+            rendered.contains("Add lib"),
+            "sidebar should list the commit"
+        );
     }
 
     #[test]
     fn empty_revision_shows_no_changes_note() {
         let repo = fixture();
         let path = repo.path();
-        git(path, &["commit", "-q", "--allow-empty", "-m", "empty change"]);
+        git(
+            path,
+            &["commit", "-q", "--allow-empty", "-m", "empty change"],
+        );
 
         let backend = Backend::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
@@ -212,7 +218,11 @@ mod tests {
         // Diff pane body starts at x=32 (sidebar width) and y=1 (under header).
         let buffer = terminal.backend().buffer();
         let painted = (33..120).any(|x| buffer.cell((x, 1)).map(|c| c.bg) == Some(cursor_bg));
-        assert!(painted, "cursor row should be highlighted:\n{}", terminal.backend());
+        assert!(
+            painted,
+            "cursor row should be highlighted:\n{}",
+            terminal.backend()
+        );
     }
 
     #[test]
@@ -230,7 +240,11 @@ mod tests {
         git(path, &["commit", "-q", "-m", "base"]);
 
         git(path, &["checkout", "-q", "-b", "feature"]);
-        std::fs::write(path.join("code.rs"), original.replace("line6\n", "line6_changed\n")).unwrap();
+        std::fs::write(
+            path.join("code.rs"),
+            original.replace("line6\n", "line6_changed\n"),
+        )
+        .unwrap();
         git(path, &["add", "-A"]);
         git(path, &["commit", "-q", "-m", "change"]);
 
@@ -240,18 +254,30 @@ mod tests {
         app.apply(keymap::Action::NextChange);
 
         let has = |app: &App, content: &str| {
-            app.rows.iter().any(|r| matches!(r, Row::Line { line, .. } if line.content == content))
+            app.rows
+                .iter()
+                .any(|r| matches!(r, Row::Line { line, .. } if line.content == content))
         };
 
         let before = app.rows.len();
-        assert!(!has(&app, "line1") && !has(&app, "line12"), "file edges hidden by default");
+        assert!(
+            !has(&app, "line1") && !has(&app, "line12"),
+            "file edges hidden by default"
+        );
 
         app.apply(keymap::Action::ExpandContext);
         assert!(app.rows.len() > before, "expansion adds rows");
-        assert!(has(&app, "line1") && has(&app, "line12"), "expansion reveals the file edges");
+        assert!(
+            has(&app, "line1") && has(&app, "line12"),
+            "expansion reveals the file edges"
+        );
 
         app.apply(keymap::Action::CollapseContext);
-        assert_eq!(app.rows.len(), before, "collapse restores the original rows");
+        assert_eq!(
+            app.rows.len(),
+            before,
+            "collapse restores the original rows"
+        );
     }
 
     #[test]
@@ -278,8 +304,14 @@ mod tests {
         let first = app.diff_cursor;
 
         app.apply(keymap::Action::Down);
-        assert!(matches!(app.focus, Focus::Sidebar), "overview keeps focus in the sidebar");
-        assert_ne!(app.diff_cursor, first, "moving the overview row moves the diff cursor");
+        assert!(
+            matches!(app.focus, Focus::Sidebar),
+            "overview keeps focus in the sidebar"
+        );
+        assert_ne!(
+            app.diff_cursor, first,
+            "moving the overview row moves the diff cursor"
+        );
     }
 
     #[test]
@@ -310,11 +342,16 @@ mod tests {
         // A render records the viewport height; without it paging cannot move.
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
-        terminal.draw(|frame| ui::render(frame, &mut app, &highlighter)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
 
         assert!(app.diff_viewport_height > 0);
         app.apply(keymap::Action::HalfPageDown);
-        assert!(app.diff_cursor > 0, "half-page down should advance the cursor");
+        assert!(
+            app.diff_cursor > 0,
+            "half-page down should advance the cursor"
+        );
     }
 
     #[test]
@@ -362,11 +399,18 @@ mod tests {
         // Annotating the same line again edits the existing annotation rather than
         // stacking a duplicate.
         app.apply(keymap::Action::Annotate);
-        assert!(app.is_editing(), "should reopen the editor on the existing annotation");
+        assert!(
+            app.is_editing(),
+            "should reopen the editor on the existing annotation"
+        );
         app.apply(keymap::Action::EditorChar('!'));
         app.apply(keymap::Action::EditorSave);
 
-        assert_eq!(app.annotations().len(), 1, "no duplicate annotation is created");
+        assert_eq!(
+            app.annotations().len(),
+            1,
+            "no duplicate annotation is created"
+        );
         assert_eq!(app.annotations()[0].annotation.body, "first!");
     }
 
@@ -389,8 +433,8 @@ mod tests {
 
     #[test]
     fn reviewer_reopens_an_agent_resolution() {
-        use crate::model::{Actor, AnnotationId, Event, EventKind};
         use crate::model::Status;
+        use crate::model::{Actor, AnnotationId, Event, EventKind};
         use crate::store::Store;
 
         let repo = fixture();
@@ -398,7 +442,11 @@ mod tests {
 
         // The agent resolves it out of band.
         Store::open(repo.path())
-            .append(&Event::now(id, Actor::Agent, EventKind::AgentResolved { reply: None }))
+            .append(&Event::now(
+                id,
+                Actor::Agent,
+                EventKind::AgentResolved { reply: None },
+            ))
             .unwrap();
 
         // Reopen via the overview, which focuses the selected annotation.
@@ -421,15 +469,25 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(110, 30)).unwrap();
 
         // The saved annotation shows inline beneath its line, not in a footer box.
-        terminal.draw(|frame| ui::render(frame, &mut app, &highlighter)).unwrap();
-        assert!(terminal.backend().to_string().contains("needs docs"), "inline annotation");
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+        assert!(
+            terminal.backend().to_string().contains("needs docs"),
+            "inline annotation"
+        );
 
         // Opening the editor renders it inline too (its save hint is visible).
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Annotate);
         assert!(app.is_editing());
-        terminal.draw(|frame| ui::render(frame, &mut app, &highlighter)).unwrap();
-        assert!(terminal.backend().to_string().contains("ctrl-s save"), "inline editor");
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+        assert!(
+            terminal.backend().to_string().contains("ctrl-s save"),
+            "inline editor"
+        );
     }
 
     #[test]
@@ -444,7 +502,8 @@ mod tests {
 
         assert!(app.annotations().is_empty(), "annotation should fold away");
 
-        let ndjson = std::fs::read_to_string(repo.path().join(".margin/annotations.ndjson")).unwrap();
+        let ndjson =
+            std::fs::read_to_string(repo.path().join(".margin/annotations.ndjson")).unwrap();
         assert!(ndjson.contains("annotation_deleted"), "{ndjson}");
     }
 
@@ -457,7 +516,10 @@ mod tests {
 
         app.apply(keymap::Action::Delete);
 
-        assert!(app.annotations().is_empty(), "delete should fold the annotation away");
+        assert!(
+            app.annotations().is_empty(),
+            "delete should fold the annotation away"
+        );
     }
 
     #[test]
@@ -466,12 +528,16 @@ mod tests {
         let mut app = app_with_annotation(repo.path());
 
         app.apply(keymap::Action::Delete);
-        assert!(app.annotations().is_empty(), "delete folds the annotation away");
+        assert!(
+            app.annotations().is_empty(),
+            "delete folds the annotation away"
+        );
 
         app.apply(keymap::Action::Undo);
         assert_eq!(app.annotations().len(), 1, "undo brings it back");
 
-        let ndjson = std::fs::read_to_string(repo.path().join(".margin/annotations.ndjson")).unwrap();
+        let ndjson =
+            std::fs::read_to_string(repo.path().join(".margin/annotations.ndjson")).unwrap();
         assert!(ndjson.contains("annotation_restored"), "{ndjson}");
     }
 
@@ -487,12 +553,19 @@ mod tests {
         app.apply(keymap::Action::ToggleOverview);
         app.apply(keymap::Action::Confirm);
 
-        assert!(matches!(app.focus, Focus::Diff), "jump should focus the diff");
+        assert!(
+            matches!(app.focus, Focus::Diff),
+            "jump should focus the diff"
+        );
         let cursor_line = match &app.rows[app.diff_cursor] {
             Row::Line { line, .. } => line.new_no.map(|n| n.get()),
             _ => None,
         };
-        assert_eq!(cursor_line, Some(anchored), "cursor should land on the anchor line");
+        assert_eq!(
+            cursor_line,
+            Some(anchored),
+            "cursor should land on the anchor line"
+        );
     }
 
     #[test]
@@ -542,18 +615,30 @@ mod tests {
             .append(&Event::now(
                 AnnotationId::new(),
                 Actor::Reviewer,
-                EventKind::AnnotationCreated { anchor, body: "on b only".into(), annotation_type: None },
+                EventKind::AnnotationCreated {
+                    anchor,
+                    body: "on b only".into(),
+                    annotation_type: None,
+                },
             ))
             .unwrap();
 
         let backend = Backend::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
         let app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
-        let a_index = app.file_index_of(&RepoRelPath(std::path::PathBuf::from("a.rs"))).unwrap();
+        let a_index = app
+            .file_index_of(&RepoRelPath(std::path::PathBuf::from("a.rs")))
+            .unwrap();
         let b_index = app.file_index_of(&b_path).unwrap();
 
-        assert!(app.line_marker(b_index, Side::New, 1).is_some(), "b.rs:1 carries the marker");
-        assert!(app.line_marker(a_index, Side::New, 1).is_none(), "a.rs:1 must not inherit it");
+        assert!(
+            app.line_marker(b_index, Side::New, 1).is_some(),
+            "b.rs:1 carries the marker"
+        );
+        assert!(
+            app.line_marker(a_index, Side::New, 1).is_none(),
+            "a.rs:1 must not inherit it"
+        );
     }
 
     #[test]

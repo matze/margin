@@ -49,13 +49,12 @@ pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
     ])
     .split(area);
 
-    let columns =
-        Layout::horizontal([
-            Constraint::Length(SIDEBAR_WIDTH),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .split(rows[0]);
+    let columns = Layout::horizontal([
+        Constraint::Length(SIDEBAR_WIDTH),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .split(rows[0]);
 
     render_sidebar(frame, app, columns[0]);
     render_divider(frame, columns[1], app.palette);
@@ -80,7 +79,11 @@ pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
 /// diff, where annotations are shown inline beneath their anchor line.
 fn footer_height(app: &App) -> u16 {
     match app.focus {
-        Focus::Sidebar => app.current_message.lines().count().clamp(1, COMMIT_MESSAGE_VIEWPORT) as u16,
+        Focus::Sidebar => app
+            .current_message
+            .lines()
+            .count()
+            .clamp(1, COMMIT_MESSAGE_VIEWPORT) as u16,
         Focus::Diff => 0,
     }
 }
@@ -99,7 +102,10 @@ fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     render_header(frame, header, &title, focused, app.palette);
-    frame.render_widget(Paragraph::new(lines).style(Style::default().bg(pane_bg)), body);
+    frame.render_widget(
+        Paragraph::new(lines).style(Style::default().bg(pane_bg)),
+        body,
+    );
 }
 
 fn commit_list_title(app: &App) -> String {
@@ -122,7 +128,9 @@ fn commit_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
 
             let selected = index == app.commit_cursor;
             let base_style = if selected {
-                Style::default().bg(app.palette.cursor_bg).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(app.palette.cursor_bg)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().bg(pane_bg)
             };
@@ -130,7 +138,9 @@ fn commit_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
             Line::from(vec![
                 Span::styled(
                     format!(" {glyph} "),
-                    Style::default().fg(marker_color(marker, app.palette)).bg(base_style.bg.unwrap_or(pane_bg)),
+                    Style::default()
+                        .fg(marker_color(marker, app.palette))
+                        .bg(base_style.bg.unwrap_or(pane_bg)),
                 ),
                 Span::styled(format!("{short} "), base_style.fg(app.palette.gutter_fg)),
                 Span::styled(revision.summary.clone(), base_style),
@@ -156,7 +166,9 @@ fn annotation_list_lines(app: &App, cursor: usize, pane_bg: Color) -> Vec<Line<'
             let marker = Marker::from_status(resolved.status);
             let selected = index == cursor;
             let base_style = if selected {
-                Style::default().bg(app.palette.cursor_bg).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(app.palette.cursor_bg)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().bg(pane_bg)
             };
@@ -174,7 +186,9 @@ fn annotation_list_lines(app: &App, cursor: usize, pane_bg: Color) -> Vec<Line<'
             Line::from(vec![
                 Span::styled(
                     format!(" {} ", marker.glyph()),
-                    Style::default().fg(marker_color(Some(marker), app.palette)).bg(base_style.bg.unwrap_or(pane_bg)),
+                    Style::default()
+                        .fg(marker_color(Some(marker), app.palette))
+                        .bg(base_style.bg.unwrap_or(pane_bg)),
                 ),
                 Span::styled(
                     format!("{file}:{}  ", annotation.anchor.start_line.get()),
@@ -236,7 +250,16 @@ fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area
 
         let is_cursor = index == app.diff_cursor && focused;
         let in_selection = focused && app.selecting() && (lo..=hi).contains(&index);
-        lines.push(render_row(app, highlighter, &app.rows[index], width, pane_bg, is_cursor, in_selection, highlight));
+        lines.push(render_row(
+            app,
+            highlighter,
+            &app.rows[index],
+            width,
+            pane_bg,
+            is_cursor,
+            in_selection,
+            highlight,
+        ));
 
         if let Some(block) = attachments.get(&index) {
             for line in block {
@@ -248,7 +271,10 @@ fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area
         }
     }
 
-    frame.render_widget(Paragraph::new(lines).style(Style::default().bg(pane_bg)), body);
+    frame.render_widget(
+        Paragraph::new(lines).style(Style::default().bg(pane_bg)),
+        body,
+    );
 }
 
 /// The diff row the open editor is attached to, if any (used as the scroll
@@ -344,10 +370,11 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
         };
 
         if let Some(row) = row_of_line(app, file_index, anchor.side, anchor.end_line.get()) {
-            attachments
-                .entry(row)
-                .or_default()
-                .extend(annotation_block(resolved, app.palette, width));
+            attachments.entry(row).or_default().extend(annotation_block(
+                resolved,
+                app.palette,
+                width,
+            ));
         }
     }
 
@@ -365,7 +392,11 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
 /// gutter column and closes (`└`) the bracket opened by the annotated lines
 /// above; the type label occupies the gutter region so the body text lines up
 /// with the code it annotates, on its own background tint.
-fn annotation_block(resolved: &ResolvedAnnotation, palette: Palette, width: usize) -> Vec<Line<'static>> {
+fn annotation_block(
+    resolved: &ResolvedAnnotation,
+    palette: Palette,
+    width: usize,
+) -> Vec<Line<'static>> {
     let annotation = &resolved.annotation;
     let bar_color = palette.marker_open;
     let bg = palette.annotation_bg;
@@ -390,7 +421,10 @@ fn annotation_block(resolved: &ResolvedAnnotation, palette: Palette, width: usiz
             let spans = vec![
                 bracket_span(bracket, bar_color, bg),
                 Span::styled(gutter, Style::default().fg(palette.gutter_fg).bg(bg)),
-                Span::styled(text.to_string(), Style::default().fg(palette.default_fg).bg(bg)),
+                Span::styled(
+                    text.to_string(),
+                    Style::default().fg(palette.default_fg).bg(bg),
+                ),
             ];
             padded_row(spans, width, bg)
         })
@@ -416,7 +450,10 @@ fn editor_block(editor: &super::app::Editor, palette: Palette, width: usize) -> 
 
     let mut contents: Vec<Vec<Span<'static>>> = vec![vec![Span::styled(
         format!("{title}   type: {kind} (ctrl-t)"),
-        Style::default().fg(palette.gutter_fg).bg(bg).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(palette.gutter_fg)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD),
     )]];
 
     let body_lines: Vec<&str> = if editor.body.is_empty() {
@@ -432,7 +469,10 @@ fn editor_block(editor: &super::app::Editor, palette: Palette, width: usize) -> 
             shown.push('▏'); // text cursor at the end of the buffer
         }
 
-        contents.push(vec![Span::styled(shown, Style::default().fg(palette.default_fg).bg(bg))]);
+        contents.push(vec![Span::styled(
+            shown,
+            Style::default().fg(palette.default_fg).bg(bg),
+        )]);
     }
 
     contents.push(vec![Span::styled(
@@ -484,32 +524,72 @@ fn render_row(
 
     match row {
         Row::File { label, change } => {
-            let bg = if is_cursor { palette.cursor_bg } else { pane_bg };
+            let bg = if is_cursor {
+                palette.cursor_bg
+            } else {
+                pane_bg
+            };
             padded_row(
                 vec![Span::styled(
                     format!(" ▸ {} {label}", change_glyph(*change)),
-                    Style::default().fg(palette.default_fg).bg(bg).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(palette.default_fg)
+                        .bg(bg)
+                        .add_modifier(Modifier::BOLD),
                 )],
                 width,
                 bg,
             )
         }
 
-        Row::Hunk { old_start, old_count, new_start, new_count, section, .. } => {
-            let bg = if is_cursor { palette.cursor_bg } else { pane_bg };
-            let emphasis = if is_cursor { Modifier::BOLD } else { Modifier::empty() };
+        Row::Hunk {
+            old_start,
+            old_count,
+            new_start,
+            new_count,
+            section,
+            ..
+        } => {
+            let bg = if is_cursor {
+                palette.cursor_bg
+            } else {
+                pane_bg
+            };
+            let emphasis = if is_cursor {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            };
             let text = format!(
                 "@@ -{old_start},{old_count} +{new_start},{new_count} @@ {section}  (± context)"
             );
             padded_row(
-                vec![Span::styled(text, Style::default().fg(palette.hunk_fg).bg(bg).add_modifier(emphasis))],
+                vec![Span::styled(
+                    text,
+                    Style::default()
+                        .fg(palette.hunk_fg)
+                        .bg(bg)
+                        .add_modifier(emphasis),
+                )],
                 width,
                 bg,
             )
         }
 
-        Row::Line { file_index, extension, line } => render_diff_line(
-            app, highlighter, *file_index, extension, line, width, pane_bg, is_cursor, in_selection,
+        Row::Line {
+            file_index,
+            extension,
+            line,
+        } => render_diff_line(
+            app,
+            highlighter,
+            *file_index,
+            extension,
+            line,
+            width,
+            pane_bg,
+            is_cursor,
+            in_selection,
             highlight,
         ),
     }
@@ -566,7 +646,10 @@ fn render_diff_line(
 
     let marker_span = Span::styled(
         format!("{} ", line_marker.map_or(' ', marker_glyph)),
-        Style::default().fg(palette.marker_open).bg(bg).add_modifier(emphasis),
+        Style::default()
+            .fg(palette.marker_open)
+            .bg(bg)
+            .add_modifier(emphasis),
     );
 
     let gutter = format!(
@@ -583,20 +666,40 @@ fn render_diff_line(
 
     let mut spans = vec![
         marker_span,
-        Span::styled(gutter, Style::default().fg(palette.gutter_fg).bg(bg).add_modifier(emphasis)),
-        Span::styled(sign.to_string(), Style::default().fg(sign_fg).bg(bg).add_modifier(emphasis)),
+        Span::styled(
+            gutter,
+            Style::default()
+                .fg(palette.gutter_fg)
+                .bg(bg)
+                .add_modifier(emphasis),
+        ),
+        Span::styled(
+            sign.to_string(),
+            Style::default().fg(sign_fg).bg(bg).add_modifier(emphasis),
+        ),
     ];
 
     let content_spans = if highlight {
         highlighter
             .spans(extension, &line.content)
             .into_iter()
-            .map(|span| Span::styled(span.text, Style::default().fg(span.color).bg(bg).add_modifier(emphasis)))
+            .map(|span| {
+                Span::styled(
+                    span.text,
+                    Style::default()
+                        .fg(span.color)
+                        .bg(bg)
+                        .add_modifier(emphasis),
+                )
+            })
             .collect()
     } else {
         vec![Span::styled(
             line.content.clone(),
-            Style::default().fg(palette.default_fg).bg(bg).add_modifier(emphasis),
+            Style::default()
+                .fg(palette.default_fg)
+                .bg(bg)
+                .add_modifier(emphasis),
         )]
     };
     spans.extend(content_spans);
@@ -610,7 +713,10 @@ fn padded_row(spans: Vec<Span<'static>>, width: usize, bg: Color) -> Line<'stati
     let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
 
     if used < width {
-        spans.push(Span::styled(" ".repeat(width - used), Style::default().bg(bg)));
+        spans.push(Span::styled(
+            " ".repeat(width - used),
+            Style::default().bg(bg),
+        ));
     }
 
     Line::from(spans)
@@ -676,7 +782,9 @@ fn render_help(frame: &mut Frame, app: &App, area: Rect) {
     let line = match &app.status_message {
         Some(message) => Line::from(Span::styled(
             format!(" {message}"),
-            Style::default().fg(app.palette.marker_open).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(app.palette.marker_open)
+                .add_modifier(Modifier::BOLD),
         )),
         None => help_line(app),
     };
@@ -688,12 +796,19 @@ fn render_help(frame: &mut Frame, app: &App, area: Rect) {
 /// are shown (diff navigation does not appear while browsing commits).
 fn help_line(app: &App) -> Line<'static> {
     let hints: &[(&str, &str)] = match (&app.overlay, app.focus, &app.sidebar) {
-        (Overlay::Editor(_), ..) => {
-            &[("type", "body"), ("ctrl-t", "type"), ("ctrl-s", "save"), ("esc", "cancel")]
-        }
-        (Overlay::Timeline(_), ..) => {
-            &[("j/k ↑↓", "scroll"), ("e", "edit"), ("r", "reopen"), ("d", "delete"), ("esc", "back")]
-        }
+        (Overlay::Editor(_), ..) => &[
+            ("type", "body"),
+            ("ctrl-t", "type"),
+            ("ctrl-s", "save"),
+            ("esc", "cancel"),
+        ],
+        (Overlay::Timeline(_), ..) => &[
+            ("j/k ↑↓", "scroll"),
+            ("e", "edit"),
+            ("r", "reopen"),
+            ("d", "delete"),
+            ("esc", "back"),
+        ],
         (Overlay::None, Focus::Sidebar, SidebarView::Annotations { .. }) => &[
             ("j/k ↑↓", "move"),
             ("enter", "jump"),
@@ -740,8 +855,12 @@ fn diff_help_line(app: &App) -> Line<'static> {
 /// in the attention color (used to flag a live selection).
 fn hint_spans(app: &App, hints: &[(&str, &str)], emphasize: Option<&str>) -> Vec<Span<'static>> {
     let dim = Style::default().fg(app.palette.gutter_fg);
-    let key_style = Style::default().fg(app.palette.help_key).add_modifier(Modifier::BOLD);
-    let emphasis_style = Style::default().fg(app.palette.marker_open).add_modifier(Modifier::BOLD);
+    let key_style = Style::default()
+        .fg(app.palette.help_key)
+        .add_modifier(Modifier::BOLD);
+    let emphasis_style = Style::default()
+        .fg(app.palette.marker_open)
+        .add_modifier(Modifier::BOLD);
 
     let mut spans = vec![Span::styled(" ", dim)];
 
@@ -830,7 +949,10 @@ fn event_lines(event: &Event, palette: Palette) -> Vec<Line<'static>> {
             format!("{}  ", format_timestamp(event)),
             Style::default().fg(palette.gutter_fg),
         ),
-        Span::styled(format!("{actor:<9}"), Style::default().fg(palette.default_fg)),
+        Span::styled(
+            format!("{actor:<9}"),
+            Style::default().fg(palette.default_fg),
+        ),
         Span::styled(label, Style::default().add_modifier(Modifier::BOLD)),
     ])];
 
@@ -885,7 +1007,10 @@ fn render_header(frame: &mut Frame, area: Rect, title: &str, focused: bool, pale
         Style::default().fg(palette.gutter_fg)
     };
 
-    let text = format!(" {title:<width$}", width = (area.width as usize).saturating_sub(1));
+    let text = format!(
+        " {title:<width$}",
+        width = (area.width as usize).saturating_sub(1)
+    );
     frame.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), area);
 }
 

@@ -104,7 +104,10 @@ fn list_json_resolve_round_trip() {
 
     // Resolving inferred the addressing revision (HEAD) and recorded it.
     let (_, json_after) = margin(path, &["list", "--json"]);
-    assert!(json_after.contains("\"addressed_by\""), "json: {json_after}");
+    assert!(
+        json_after.contains("\"addressed_by\""),
+        "json: {json_after}"
+    );
     assert!(json_after.contains(&rev_sha), "json: {json_after}");
 
     // The store kept created + resolved + inferred-addressed_by (append-only).
@@ -151,7 +154,10 @@ fn status_wont_do_and_reopen() {
     let short = &id.0.simple().to_string()[..8];
 
     // wont-do declines the annotation.
-    let (ok, _) = margin(path, &["status", short, "wont-do", "--reply", "out of scope"]);
+    let (ok, _) = margin(
+        path,
+        &["status", short, "wont-do", "--reply", "out of scope"],
+    );
     assert!(ok);
     let (_, after_decline) = margin(path, &["list"]);
     assert!(after_decline.contains("[wont_do]"), "list: {after_decline}");

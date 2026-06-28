@@ -89,7 +89,6 @@ pub struct Target {
     pub end: LineNumber,
 }
 
-
 /// A rendered row of the diff pane.
 pub enum Row {
     File {
@@ -533,7 +532,11 @@ impl App {
     fn reveal_annotation(&mut self) {
         let Some((revision, file, start_line)) = self.focused_annotation().map(|resolved| {
             let anchor = &resolved.annotation.anchor;
-            (anchor.revision_id.clone(), anchor.file.clone(), anchor.start_line.get())
+            (
+                anchor.revision_id.clone(),
+                anchor.file.clone(),
+                anchor.start_line.get(),
+            )
         }) else {
             return;
         };
@@ -665,8 +668,8 @@ impl App {
     /// Edit the focused annotation's body/type. From the sidebar overview this
     /// first jumps to the annotation so the inline editor lands on its line.
     fn begin_edit(&mut self) {
-        let from_overview =
-            matches!(self.focus, Focus::Sidebar) && matches!(self.sidebar, SidebarView::Annotations { .. });
+        let from_overview = matches!(self.focus, Focus::Sidebar)
+            && matches!(self.sidebar, SidebarView::Annotations { .. });
 
         if from_overview {
             self.jump_to_annotation();
@@ -722,7 +725,11 @@ impl App {
         };
 
         let id = resolved.annotation.id;
-        let event = Event::now(id, Actor::Reviewer, EventKind::AnnotationDeleted { reason: None });
+        let event = Event::now(
+            id,
+            Actor::Reviewer,
+            EventKind::AnnotationDeleted { reason: None },
+        );
 
         match self.store.append(&event) {
             Ok(()) => {
@@ -743,7 +750,11 @@ impl App {
             return;
         };
 
-        let event = Event::now(id, Actor::Reviewer, EventKind::AnnotationRestored { reason: None });
+        let event = Event::now(
+            id,
+            Actor::Reviewer,
+            EventKind::AnnotationRestored { reason: None },
+        );
 
         match self.store.append(&event) {
             Ok(()) => {
@@ -771,7 +782,10 @@ impl App {
     /// else the one under the diff cursor.
     fn focused_annotation(&self) -> Option<&ResolvedAnnotation> {
         if let Overlay::Timeline(timeline) = &self.overlay {
-            return self.annotations.iter().find(|a| a.id() == timeline.annotation_id);
+            return self
+                .annotations
+                .iter()
+                .find(|a| a.id() == timeline.annotation_id);
         }
 
         match &self.sidebar {
@@ -1017,7 +1031,10 @@ impl App {
 
     /// Expanded-context count for a hunk.
     fn expansion(&self, file_index: usize, new_start: u32) -> u32 {
-        self.expansions.get(&(file_index, new_start)).copied().unwrap_or(0)
+        self.expansions
+            .get(&(file_index, new_start))
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Reveal (or hide) more source context around the hunk under the cursor.
@@ -1054,10 +1071,18 @@ impl App {
     /// targets the leading hunk and near the bottom the trailing one.
     fn focused_hunk_key(&self) -> Option<(usize, u32)> {
         let (file_index, new_no, old_no) = match self.rows.get(self.diff_cursor)? {
-            Row::Hunk { file_index, new_start, .. } => (*file_index, Some(*new_start), None),
-            Row::Line { file_index, line, .. } => {
-                (*file_index, line.new_no.map(LineNumber::get), line.old_no.map(LineNumber::get))
-            }
+            Row::Hunk {
+                file_index,
+                new_start,
+                ..
+            } => (*file_index, Some(*new_start), None),
+            Row::Line {
+                file_index, line, ..
+            } => (
+                *file_index,
+                line.new_no.map(LineNumber::get),
+                line.old_no.map(LineNumber::get),
+            ),
             _ => return None,
         };
 
@@ -1183,7 +1208,12 @@ fn build_rows(
         });
 
         let file_lines = contents.get(&file_index);
-        let extra_of = |hunk: &Hunk| expansions.get(&(file_index, hunk.new_start)).copied().unwrap_or(0);
+        let extra_of = |hunk: &Hunk| {
+            expansions
+                .get(&(file_index, hunk.new_start))
+                .copied()
+                .unwrap_or(0)
+        };
 
         let mut start = 0;
 
@@ -1217,7 +1247,11 @@ fn build_rows(
             });
 
             for context in context_lines(head, extra_of(head), file_lines, ContextSide::Before) {
-                rows.push(Row::Line { file_index, extension: extension.clone(), line: context });
+                rows.push(Row::Line {
+                    file_index,
+                    extension: extension.clone(),
+                    line: context,
+                });
             }
 
             for member in start..=end {
@@ -1230,14 +1264,24 @@ fn build_rows(
                 }
 
                 if member < end {
-                    for context in gap_context(&file.hunks[member], &file.hunks[member + 1], file_lines) {
-                        rows.push(Row::Line { file_index, extension: extension.clone(), line: context });
+                    for context in
+                        gap_context(&file.hunks[member], &file.hunks[member + 1], file_lines)
+                    {
+                        rows.push(Row::Line {
+                            file_index,
+                            extension: extension.clone(),
+                            line: context,
+                        });
                     }
                 }
             }
 
             for context in context_lines(tail, extra_of(tail), file_lines, ContextSide::After) {
-                rows.push(Row::Line { file_index, extension: extension.clone(), line: context });
+                rows.push(Row::Line {
+                    file_index,
+                    extension: extension.clone(),
+                    line: context,
+                });
             }
 
             start = end + 1;
@@ -1275,9 +1319,14 @@ fn context_lines(
             let (new_no, old_no) = match side {
                 ContextSide::Before => (
                     hunk.new_start.checked_sub(offset)?,
-                    has_old.then(|| hunk.old_start.checked_sub(offset)).flatten(),
+                    has_old
+                        .then(|| hunk.old_start.checked_sub(offset))
+                        .flatten(),
                 ),
-                ContextSide::After => (last_new + offset - 1, has_old.then_some(last_old + offset - 1)),
+                ContextSide::After => (
+                    last_new + offset - 1,
+                    has_old.then_some(last_old + offset - 1),
+                ),
             };
 
             let content = file_lines.get(new_no.checked_sub(1)? as usize)?.clone();
@@ -1301,13 +1350,20 @@ fn context_lines(
 
 /// Number of unchanged new-side lines between two consecutive hunks.
 fn gap_size(prev: &Hunk, next: &Hunk) -> u32 {
-    next.new_start.saturating_sub(prev.new_start + prev.new_count)
+    next.new_start
+        .saturating_sub(prev.new_start + prev.new_count)
 }
 
 /// Whether the expansions on either side reveal the whole gap between two
 /// consecutive hunks, so they should render as a single merged block. Requires
 /// file contents, since a merged block must show every line it spans.
-fn gap_covered(prev: &Hunk, next: &Hunk, extra_prev: u32, extra_next: u32, file_lines: Option<&Vec<String>>) -> bool {
+fn gap_covered(
+    prev: &Hunk,
+    next: &Hunk,
+    extra_prev: u32,
+    extra_next: u32,
+    file_lines: Option<&Vec<String>>,
+) -> bool {
     file_lines.is_some() && extra_prev + extra_next >= gap_size(prev, next)
 }
 
@@ -1329,7 +1385,9 @@ fn gap_context(prev: &Hunk, next: &Hunk, file_lines: Option<&Vec<String>>) -> Ve
 
             Some(DiffLine {
                 kind: DiffLineKind::Context,
-                old_no: has_old.then(|| first_old + step as u32).and_then(LineNumber::new),
+                old_no: has_old
+                    .then(|| first_old + step as u32)
+                    .and_then(LineNumber::new),
                 new_no: LineNumber::new(new_no),
                 content,
             })
@@ -1399,7 +1457,12 @@ mod tests {
         let rows = build_rows(&diff, &expansions, &contents);
 
         // One merged header, no duplicates, continuous lines 1..=9.
-        assert_eq!(rows.iter().filter(|r| matches!(r, Row::Hunk { .. })).count(), 1);
+        assert_eq!(
+            rows.iter()
+                .filter(|r| matches!(r, Row::Hunk { .. }))
+                .count(),
+            1
+        );
         assert_eq!(new_numbers(&rows), (1..=9).collect::<Vec<_>>());
     }
 
@@ -1412,7 +1475,12 @@ mod tests {
         let expansions = HashMap::from([((0, 3), 2), ((0, 20), 2)]);
         let rows = build_rows(&diff, &expansions, &contents);
 
-        assert_eq!(rows.iter().filter(|r| matches!(r, Row::Hunk { .. })).count(), 2);
+        assert_eq!(
+            rows.iter()
+                .filter(|r| matches!(r, Row::Hunk { .. }))
+                .count(),
+            2
+        );
         assert_eq!(new_numbers(&rows), vec![1, 2, 3, 4, 5, 18, 19, 20, 21, 22]);
     }
 }

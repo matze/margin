@@ -16,10 +16,7 @@ pub const CONTEXT_LINES: usize = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resolution {
     /// The range was located at this (possibly shifted) position.
-    Located {
-        start: LineNumber,
-        end: LineNumber,
-    },
+    Located { start: LineNumber, end: LineNumber },
     /// The range could not be located; the annotation is orphaned.
     Orphaned,
 }
@@ -52,7 +49,9 @@ pub fn capture(
         start_line: start,
         end_line: end,
         side,
-        context_before: owned(&lines[from.saturating_sub(1).saturating_sub(context_lines)..from - 1]),
+        context_before: owned(
+            &lines[from.saturating_sub(1).saturating_sub(context_lines)..from - 1],
+        ),
         anchored_text: owned(&lines[from - 1..to]),
         context_after: owned(&lines[to..(to + context_lines).min(lines.len())]),
     })
@@ -156,10 +155,7 @@ mod tests {
     fn capture_records_text_and_context() {
         let anchor = anchor_for(SOURCE, 3, 3);
         assert_eq!(anchor.anchored_text, vec!["    let b = 2;"]);
-        assert_eq!(
-            anchor.context_before,
-            vec!["fn main() {", "    let a = 1;"]
-        );
+        assert_eq!(anchor.context_before, vec!["fn main() {", "    let a = 1;"]);
         assert_eq!(
             anchor.context_after,
             vec!["    let c = 3;", "    println!(\"{a}{b}{c}\");", "}"]

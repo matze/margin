@@ -58,7 +58,12 @@ impl Highlighter {
     /// spans. Falls back to a single default-colored span when the language is
     /// unknown or the line is too long.
     pub fn spans(&self, extension: &str, line: &str) -> Vec<Span> {
-        let plain = || vec![Span { color: self.default_fg, text: line.to_string() }];
+        let plain = || {
+            vec![Span {
+                color: self.default_fg,
+                text: line.to_string(),
+            }]
+        };
 
         if line.len() > MAX_LINE_LEN {
             return plain();

@@ -32,10 +32,12 @@ pub(super) fn parse_log_line(line: &str) -> Result<Revision, VcsError> {
     let parents = next("parents")?;
     let summary = next("summary")?.to_string();
 
-    let date = date_raw.parse::<Timestamp>().map_err(|error| VcsError::Parse {
-        what: "commit date",
-        detail: format!("{date_raw:?}: {error}"),
-    })?;
+    let date = date_raw
+        .parse::<Timestamp>()
+        .map_err(|error| VcsError::Parse {
+            what: "commit date",
+            detail: format!("{date_raw:?}: {error}"),
+        })?;
 
     Ok(Revision {
         id,
@@ -242,8 +244,15 @@ fn parse_range(value: &str, sign: char) -> Result<(u32, u32), VcsError> {
 
     let digits = value.strip_prefix(sign).ok_or_else(invalid)?;
     let mut parts = digits.splitn(2, ',');
-    let start = parts.next().ok_or_else(invalid)?.parse().map_err(|_| invalid())?;
-    let count = parts.next().map_or(Ok(1), str::parse).map_err(|_| invalid())?;
+    let start = parts
+        .next()
+        .ok_or_else(invalid)?
+        .parse()
+        .map_err(|_| invalid())?;
+    let count = parts
+        .next()
+        .map_or(Ok(1), str::parse)
+        .map_err(|_| invalid())?;
 
     Ok((start, count))
 }

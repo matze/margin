@@ -25,7 +25,10 @@ impl Backend {
             .current_dir(start.as_ref())
             .args(["rev-parse", "--show-toplevel"])
             .output()
-            .map_err(|source| VcsError::Spawn { tool: "git", source })?;
+            .map_err(|source| VcsError::Spawn {
+                tool: "git",
+                source,
+            })?;
 
         if !output.status.success() {
             return Err(VcsError::NotARepo { tool: "git" });
@@ -33,7 +36,9 @@ impl Backend {
 
         let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-        Ok(Self { root: PathBuf::from(root) })
+        Ok(Self {
+            root: PathBuf::from(root),
+        })
     }
 
     /// Run `git` with `args`, returning stdout on success.
@@ -42,7 +47,10 @@ impl Backend {
             .current_dir(&self.root)
             .args(args)
             .output()
-            .map_err(|source| VcsError::Spawn { tool: "git", source })?;
+            .map_err(|source| VcsError::Spawn {
+                tool: "git",
+                source,
+            })?;
 
         if !output.status.success() {
             return Err(VcsError::Command {
@@ -58,18 +66,32 @@ impl Backend {
 
     /// True when `rev` resolves to a commit.
     fn verify(&self, rev: &str) -> bool {
-        self.run(&["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")])
-            .is_ok()
+        self.run(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{rev}^{{commit}}"),
+        ])
+        .is_ok()
     }
 
     /// Resolve a ref to its commit SHA.
     fn resolve(&self, rev: &str) -> Result<RevisionId, VcsError> {
-        Ok(RevisionId(self.run(&["rev-parse", "--verify", rev])?.trim().to_string()))
+        Ok(RevisionId(
+            self.run(&["rev-parse", "--verify", rev])?
+                .trim()
+                .to_string(),
+        ))
     }
 
     /// Detect the repository's default branch (PRD §6 base resolution).
     fn detect_default_branch(&self) -> Option<String> {
-        if let Ok(out) = self.run(&["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]) {
+        if let Ok(out) = self.run(&[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ]) {
             if let Some(branch) = out.trim().strip_prefix("origin/") {
                 return Some(branch.to_string());
             }
@@ -83,7 +105,10 @@ impl Backend {
 
     /// List commits for `range` (e.g. `base..HEAD`, or `HEAD` for fallback).
     fn log(&self, range: &str, extra: &[&str]) -> Result<Vec<Revision>, VcsError> {
-        let format = format!("--pretty=format:%H{sep}%cI{sep}%an{sep}%P{sep}%s", sep = FIELD_SEP);
+        let format = format!(
+            "--pretty=format:%H{sep}%cI{sep}%an{sep}%P{sep}%s",
+            sep = FIELD_SEP
+        );
         let mut args = vec!["log", &format, range];
         args.extend_from_slice(extra);
 
@@ -137,7 +162,11 @@ impl Vcs for Backend {
 
     fn diff(&self, revision: &RevisionId) -> Result<CommitDiff, VcsError> {
         let parent = format!("{}^1", revision.0);
-        let parent: &str = if self.verify(&parent) { &parent } else { EMPTY_TREE };
+        let parent: &str = if self.verify(&parent) {
+            &parent
+        } else {
+            EMPTY_TREE
+        };
 
         let raw = self.run(&[
             "diff",
