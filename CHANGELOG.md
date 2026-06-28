@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Added
+
+- Split view, reachable with `s`.
+- `shift-j`/`shift-k` to move between commits.
+
+### Fixed
+
+- Gate Unix-only terminal theme detection behind `cfg(unix)`.
+
 ## [0.1.0]
 
 ### Added
