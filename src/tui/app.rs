@@ -8,12 +8,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::anchor::{capture, Resolution, CONTEXT_LINES};
+use crate::anchor::{CONTEXT_LINES, Resolution, capture};
 use crate::model::{
     Actor, AnnotationId, AnnotationType, Event, EventKind, LineNumber, RepoRelPath, RevisionId,
     Side, Status,
 };
-use crate::review::{resolve_all, ResolvedAnnotation};
+use crate::review::{ResolvedAnnotation, resolve_all};
 use crate::store::Store;
 use crate::vcs::{
     Backend, Base, ChangeKind, CommitDiff, DiffLine, DiffLineKind, FileDiff, Hunk, ListingSource,
@@ -623,11 +623,11 @@ impl App {
             return;
         };
 
-        if let Some(index) = self.revisions.iter().position(|r| r.id == revision) {
-            if index != self.commit_cursor {
-                self.commit_cursor = index;
-                self.load_selected_commit();
-            }
+        if let Some(index) = self.revisions.iter().position(|r| r.id == revision)
+            && index != self.commit_cursor
+        {
+            self.commit_cursor = index;
+            self.load_selected_commit();
         }
 
         let Some(file_index) = self.file_index_of(&file) else {
@@ -724,21 +724,21 @@ impl App {
     /// active selection on an already-annotated line, edit that annotation rather
     /// than stacking a duplicate on the same line.
     fn begin_annotation(&mut self) {
-        if !self.selecting() {
-            if let Some((id, body, annotation_type)) = self.annotation_at_cursor().map(|resolved| {
+        if !self.selecting()
+            && let Some((id, body, annotation_type)) = self.annotation_at_cursor().map(|resolved| {
                 (
                     resolved.annotation.id,
                     resolved.annotation.body.clone(),
                     resolved.annotation.annotation_type,
                 )
-            }) {
-                self.overlay = Overlay::Editor(Editor {
-                    mode: EditorMode::Edit(id),
-                    body,
-                    annotation_type,
-                });
-                return;
-            }
+            })
+        {
+            self.overlay = Overlay::Editor(Editor {
+                mode: EditorMode::Edit(id),
+                body,
+                annotation_type,
+            });
+            return;
         }
 
         let Some(target) = self.selection_target() else {
@@ -871,10 +871,10 @@ impl App {
     /// Close the timeline overlay if its annotation no longer exists (e.g. after
     /// a delete), so it does not linger pointing at nothing.
     fn cancel_overlay_if_orphaned(&mut self) {
-        if let Overlay::Timeline(timeline) = &self.overlay {
-            if self.annotation(timeline.annotation_id).is_none() {
-                self.overlay = Overlay::None;
-            }
+        if let Overlay::Timeline(timeline) = &self.overlay
+            && self.annotation(timeline.annotation_id).is_none()
+        {
+            self.overlay = Overlay::None;
         }
     }
 
@@ -1127,10 +1127,10 @@ impl App {
                 continue;
             }
 
-            if let Some(path) = file.new_path.clone() {
-                if let Ok(text) = self.backend.file_at(&diff.revision, &path) {
-                    contents.insert(file_index, text.lines().map(str::to_string).collect());
-                }
+            if let Some(path) = file.new_path.clone()
+                && let Ok(text) = self.backend.file_at(&diff.revision, &path)
+            {
+                contents.insert(file_index, text.lines().map(str::to_string).collect());
             }
         }
 

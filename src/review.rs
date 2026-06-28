@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::anchor::{resolve, Resolution};
+use crate::anchor::{Resolution, resolve};
 use crate::model::{Annotation, AnnotationId, CommitId, Side, Status};
 use crate::store::{Store, StoreError};
 use crate::vcs::{ChangeCommits, Vcs};

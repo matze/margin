@@ -6,11 +6,11 @@
 //! diff-semantic backgrounds (PRD §11.1); foreground accents use ANSI named
 //! colors so they track the terminal theme.
 
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
-use ratatui::Frame;
 
 use crate::export::{status_label, type_label};
 use crate::model::{Event, EventKind, Side};
@@ -18,8 +18,8 @@ use crate::review::{ResolvedAnnotation, RevisionState};
 use crate::vcs::{ChangeKind, DiffLine, DiffLineKind, ListingSource};
 
 use super::app::{
-    App, DiffView, EditorMode, Focus, LineMarker, Marker, Overlay, Row, SidebarView, SpanPosition,
-    COMMIT_MESSAGE_VIEWPORT,
+    App, COMMIT_MESSAGE_VIEWPORT, DiffView, EditorMode, Focus, LineMarker, Marker, Overlay, Row,
+    SidebarView, SpanPosition,
 };
 use super::highlight::Highlighter;
 use super::theme::Palette;

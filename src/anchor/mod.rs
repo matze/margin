@@ -168,17 +168,19 @@ mod tests {
 
     #[test]
     fn capture_rejects_out_of_range() {
-        assert!(capture(
-            RepoRelPath(PathBuf::from("f")),
-            RevisionId("r".into()),
-            CommitId("c".into()),
-            Side::New,
-            SOURCE,
-            LineNumber::new(99).unwrap(),
-            LineNumber::new(99).unwrap(),
-            CONTEXT_LINES,
-        )
-        .is_none());
+        assert!(
+            capture(
+                RepoRelPath(PathBuf::from("f")),
+                RevisionId("r".into()),
+                CommitId("c".into()),
+                Side::New,
+                SOURCE,
+                LineNumber::new(99).unwrap(),
+                LineNumber::new(99).unwrap(),
+                CONTEXT_LINES,
+            )
+            .is_none()
+        );
     }
 
     #[test]

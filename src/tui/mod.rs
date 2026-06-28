@@ -97,17 +97,19 @@ fn event_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
     use std::path::Path;
     use std::process::Command;
 
     fn git(dir: &Path, args: &[&str]) {
-        assert!(Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success());
+        assert!(
+            Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success()
+        );
     }
 
     fn fixture() -> tempfile::TempDir {
@@ -570,7 +572,7 @@ mod tests {
 
     #[test]
     fn line_markers_do_not_bleed_across_files_on_the_same_line() {
-        use crate::anchor::{capture, CONTEXT_LINES};
+        use crate::anchor::{CONTEXT_LINES, capture};
         use crate::model::{Actor, AnnotationId, Event, EventKind, LineNumber, RepoRelPath, Side};
         use crate::store::Store;
         use crate::vcs::Vcs;

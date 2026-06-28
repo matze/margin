@@ -91,10 +91,10 @@ pub(super) fn parse_diff(raw: &str) -> Result<Vec<FileDiff>, VcsError> {
             continue;
         }
 
-        if let (Some(hunk), Some(counters)) = (file.hunks.last_mut(), counters.as_mut()) {
-            if let Some(diff_line) = parse_body_line(line, counters) {
-                hunk.lines.push(diff_line);
-            }
+        if let (Some(hunk), Some(counters)) = (file.hunks.last_mut(), counters.as_mut())
+            && let Some(diff_line) = parse_body_line(line, counters)
+        {
+            hunk.lines.push(diff_line);
         }
     }
 

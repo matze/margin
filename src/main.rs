@@ -2,13 +2,13 @@ mod cli;
 
 use std::path::PathBuf;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 
 use cli::{AnnotationState, Cli, Command};
 use margin::export::{render_json, status_label, type_label};
 use margin::model::{Actor, AnnotationId, Event, EventKind, RevisionId, Status};
-use margin::review::{current_start, resolve_all, ResolvedAnnotation};
+use margin::review::{ResolvedAnnotation, current_start, resolve_all};
 use margin::store::Store;
 use margin::vcs::{Backend, Base, Kind, Vcs};
 

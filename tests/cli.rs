@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use margin::anchor::{capture, CONTEXT_LINES};
+use margin::anchor::{CONTEXT_LINES, capture};
 use margin::model::{
     Actor, AnnotationId, AnnotationType, CommitId, Event, EventKind, LineNumber, RepoRelPath,
     RevisionId, Side,

@@ -173,7 +173,7 @@ pub trait Vcs {
     /// File content at a revision's first parent, for resolving old-side anchors
     /// against the version the line was deleted from.
     fn file_at_parent(&self, revision: &RevisionId, path: &RepoRelPath)
-        -> Result<String, VcsError>;
+    -> Result<String, VcsError>;
 
     /// The current working revision (`HEAD`/`@`), used to infer the change that
     /// addressed an annotation.

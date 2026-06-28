@@ -12,7 +12,7 @@ mod fold;
 
 pub use anchor::Anchor;
 pub use event::{Event, EventKind};
-pub use fold::{fold, Annotation};
+pub use fold::{Annotation, fold};
 
 use std::num::NonZeroU32;
 use std::path::PathBuf;

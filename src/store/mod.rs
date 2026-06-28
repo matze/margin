@@ -10,7 +10,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::model::{fold, Annotation, AnnotationId, Event};
+use crate::model::{Annotation, AnnotationId, Event, fold};
 
 /// Errors from reading or appending to the event log.
 #[derive(Debug, thiserror::Error)]

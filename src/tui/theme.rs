@@ -299,11 +299,11 @@ mod tests {
 
     #[test]
     fn colorfgbg_dark_background_is_dark() {
-        std::env::set_var("COLORFGBG", "15;0");
+        unsafe { std::env::set_var("COLORFGBG", "15;0") };
         assert_eq!(ThemeMode::from_colorfgbg(), Some(ThemeMode::Dark));
-        std::env::set_var("COLORFGBG", "0;15");
+        unsafe { std::env::set_var("COLORFGBG", "0;15") };
         assert_eq!(ThemeMode::from_colorfgbg(), Some(ThemeMode::Light));
-        std::env::remove_var("COLORFGBG");
+        unsafe { std::env::remove_var("COLORFGBG") };
     }
 
     #[test]

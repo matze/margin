@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::parse::{parse_diff, parse_log_line, FIELD_SEP};
+use super::parse::{FIELD_SEP, parse_diff, parse_log_line};
 use super::{Base, ChangeCommits, CommitDiff, ListingSource, Revision, Revisions, Vcs, VcsError};
 use crate::model::{CommitId, RepoRelPath, RevisionId};
 
@@ -91,10 +91,9 @@ impl Backend {
             "--quiet",
             "--short",
             "refs/remotes/origin/HEAD",
-        ]) {
-            if let Some(branch) = out.trim().strip_prefix("origin/") {
-                return Some(branch.to_string());
-            }
+        ]) && let Some(branch) = out.trim().strip_prefix("origin/")
+        {
+            return Some(branch.to_string());
         }
 
         DEFAULT_BRANCH_CANDIDATES
