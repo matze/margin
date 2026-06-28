@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::parse::{parse_diff, parse_log_line, FIELD_SEP};
-use super::{Base, CommitDiff, ListingSource, Revision, Revisions, Vcs, VcsError};
-use crate::model::{RepoRelPath, RevisionId};
+use super::{Base, ChangeCommits, CommitDiff, ListingSource, Revision, Revisions, Vcs, VcsError};
+use crate::model::{CommitId, RepoRelPath, RevisionId};
 
 /// The well-known SHA of git's empty tree, used to diff a root commit (which has
 /// no parent) against "nothing".
@@ -199,5 +199,16 @@ impl Vcs for Backend {
 
     fn head(&self) -> Result<RevisionId, VcsError> {
         self.resolve("HEAD")
+    }
+
+    fn commit_of(&self, revision: &RevisionId) -> Result<CommitId, VcsError> {
+        // A git `RevisionId` is already the commit SHA.
+        Ok(CommitId(revision.0.clone()))
+    }
+
+    fn change_commits(&self, _revision: &RevisionId) -> Result<ChangeCommits, VcsError> {
+        // git commit SHAs are not preserved across amend/rebase, so there is no
+        // stable change identity to follow.
+        Ok(ChangeCommits::Unsupported)
     }
 }

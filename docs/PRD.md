@@ -165,3 +165,4 @@ storage format. No MCP server in v1.
 | 14 | Write-back | Yes, as events |
 | 15 | Stack | Rust + `ratatui` / `crossterm`; vim-style keys + arrow fallback |
 | 16 | Highlighting | `syntect`, light/dark aware (both shipped), default dark when undetectable, lazy/viewport + size cap |
+| 17 | Change tracking (jj) | Capture the commit hash alongside the change id; classify a change as `unchanged`/`amended`/`divergent`/`abandoned` at review time and surface it in `list --json` + timeline. jj-only (git has no change identity across amend); reported `unsupported`/omitted on git |

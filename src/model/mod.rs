@@ -21,9 +21,22 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Stable id of a revision under review: a git commit SHA or a jj change id.
+///
+/// This is the *change identity* used for anchoring: under jj it survives
+/// amend/rebase, so the same `RevisionId` keeps pointing at a change as its
+/// content evolves. Contrast [`CommitId`], the concrete commit a change resolves
+/// to at a point in time.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct RevisionId(pub String);
+
+/// A concrete commit hash: a git commit SHA, or a jj commit id (not its change
+/// id). Captured alongside an anchor's [`RevisionId`] so re-anchoring can tell
+/// whether the change was amended/rebased since — under jj the [`RevisionId`]
+/// alone cannot, as it tracks the change across such rewrites.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CommitId(pub String);
 
 /// Identity of an annotation, shared across every event that concerns it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

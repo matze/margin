@@ -9,9 +9,43 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::anchor::{resolve, Resolution};
-use crate::model::{Annotation, AnnotationId, Side, Status};
+use crate::model::{Annotation, AnnotationId, CommitId, Side, Status};
 use crate::store::{Store, StoreError};
-use crate::vcs::Vcs;
+use crate::vcs::{ChangeCommits, Vcs};
+
+/// How an annotation's anchored change stands in current history, independent of
+/// whether its text still resolves. Derived by comparing the change's current
+/// commit(s) against the commit captured with the anchor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RevisionState {
+    /// The change still resolves to the commit captured with the anchor.
+    Unchanged,
+    /// The change resolves to a single, different commit: amended or rebased.
+    Amended { current: CommitId },
+    /// The change resolves to multiple commits: it is divergent.
+    Divergent { commits: Vec<CommitId> },
+    /// The change no longer resolves in history: it was abandoned.
+    Abandoned,
+    /// The backend cannot track change identity across history edits (git).
+    Unsupported,
+}
+
+impl RevisionState {
+    /// Classify a captured commit against the change's current commit(s).
+    fn classify(captured: &CommitId, current: &ChangeCommits) -> Self {
+        match current {
+            ChangeCommits::None => RevisionState::Abandoned,
+            ChangeCommits::Many(commits) => RevisionState::Divergent {
+                commits: commits.clone(),
+            },
+            ChangeCommits::Unsupported => RevisionState::Unsupported,
+            ChangeCommits::One(commit) if commit == captured => RevisionState::Unchanged,
+            ChangeCommits::One(commit) => RevisionState::Amended {
+                current: commit.clone(),
+            },
+        }
+    }
+}
 
 /// An annotation paired with its location in the current working tree.
 #[derive(Debug, Clone)]
@@ -22,6 +56,8 @@ pub struct ResolvedAnnotation {
     /// Effective status: the derived status, downgraded to [`Status::Orphaned`]
     /// when an otherwise-open annotation can no longer be located.
     pub status: Status,
+    /// How the anchored change stands in current history (amended, abandoned, …).
+    pub revision_state: RevisionState,
 }
 
 impl ResolvedAnnotation {
@@ -42,11 +78,12 @@ pub fn resolve_all(
 ) -> Result<Vec<ResolvedAnnotation>, StoreError> {
     let repo_root = repo_root.as_ref();
     let mut cache: BTreeMap<SourceKey, Option<String>> = BTreeMap::new();
+    let mut revisions: BTreeMap<String, ChangeCommits> = BTreeMap::new();
 
     let mut resolved: Vec<ResolvedAnnotation> = store
         .annotations()?
         .into_values()
-        .map(|annotation| resolve_one(annotation, repo_root, vcs, &mut cache))
+        .map(|annotation| resolve_one(annotation, repo_root, vcs, &mut cache, &mut revisions))
         .collect();
 
     resolved.sort_by(|a, b| {
@@ -83,6 +120,7 @@ fn resolve_one(
     repo_root: &Path,
     vcs: &dyn Vcs,
     cache: &mut BTreeMap<SourceKey, Option<String>>,
+    revisions: &mut BTreeMap<String, ChangeCommits>,
 ) -> ResolvedAnnotation {
     let anchor = &annotation.anchor;
     let path = &anchor.file.0;
@@ -110,9 +148,62 @@ fn resolve_one(
         (status, _) => status,
     };
 
+    let current = revisions
+        .entry(anchor.revision_id.0.clone())
+        .or_insert_with(|| {
+            // An error querying the change (e.g. a missing backend) is not a
+            // history fact, so fall back to "untracked" rather than abandoned.
+            vcs.change_commits(&anchor.revision_id)
+                .unwrap_or(ChangeCommits::Unsupported)
+        });
+    let revision_state = RevisionState::classify(&anchor.commit_at_capture, current);
+
     ResolvedAnnotation {
         annotation,
         location,
         status,
+        revision_state,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn commit(id: &str) -> CommitId {
+        CommitId(id.into())
+    }
+
+    #[test]
+    fn classify_maps_each_change_state() {
+        let captured = commit("c0");
+
+        assert_eq!(
+            RevisionState::classify(&captured, &ChangeCommits::One(commit("c0"))),
+            RevisionState::Unchanged
+        );
+        assert_eq!(
+            RevisionState::classify(&captured, &ChangeCommits::One(commit("c1"))),
+            RevisionState::Amended {
+                current: commit("c1")
+            }
+        );
+        assert_eq!(
+            RevisionState::classify(
+                &captured,
+                &ChangeCommits::Many(vec![commit("c1"), commit("c2")])
+            ),
+            RevisionState::Divergent {
+                commits: vec![commit("c1"), commit("c2")]
+            }
+        );
+        assert_eq!(
+            RevisionState::classify(&captured, &ChangeCommits::None),
+            RevisionState::Abandoned
+        );
+        assert_eq!(
+            RevisionState::classify(&captured, &ChangeCommits::Unsupported),
+            RevisionState::Unsupported
+        );
     }
 }

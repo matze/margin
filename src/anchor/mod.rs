@@ -7,7 +7,7 @@
 //! captured window. When neither locates the range the annotation is reported
 //! [`Resolution::Orphaned`] — kept and surfaced, never silently dropped.
 
-use crate::model::{Anchor, LineNumber, RepoRelPath, RevisionId, Side};
+use crate::model::{Anchor, CommitId, LineNumber, RepoRelPath, RevisionId, Side};
 
 /// Default number of leading/trailing context lines captured per anchor.
 pub const CONTEXT_LINES: usize = 3;
@@ -25,9 +25,11 @@ pub enum Resolution {
 /// recording up to `context_lines` lines of surrounding context.
 ///
 /// Returns `None` when the range is empty or falls outside `source`.
+#[allow(clippy::too_many_arguments)]
 pub fn capture(
     file: RepoRelPath,
     revision_id: RevisionId,
+    commit_at_capture: CommitId,
     side: Side,
     source: &str,
     start: LineNumber,
@@ -46,6 +48,7 @@ pub fn capture(
     Some(Anchor {
         file,
         revision_id,
+        commit_at_capture,
         start_line: start,
         end_line: end,
         side,
@@ -140,6 +143,7 @@ mod tests {
         capture(
             RepoRelPath(PathBuf::from("src/lib.rs")),
             RevisionId("rev0".into()),
+            CommitId("commit0".into()),
             Side::New,
             source,
             LineNumber::new(start).unwrap(),
@@ -167,6 +171,7 @@ mod tests {
         assert!(capture(
             RepoRelPath(PathBuf::from("f")),
             RevisionId("r".into()),
+            CommitId("c".into()),
             Side::New,
             SOURCE,
             LineNumber::new(99).unwrap(),

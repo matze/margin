@@ -1029,9 +1029,15 @@ impl App {
         }
         .map_err(|error| format!("reading file at revision: {error}"))?;
 
+        let commit_at_capture = self
+            .backend
+            .commit_of(&target.revision)
+            .map_err(|error| format!("resolving commit at revision: {error}"))?;
+
         let anchor = capture(
             target.path.clone(),
             target.revision.clone(),
+            commit_at_capture,
             target.side,
             &source,
             target.start,

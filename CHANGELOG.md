@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- jj change tracking: each annotation records the commit its change pointed at
+  when captured, and re-anchoring classifies the change as `unchanged`,
+  `amended`, `divergent`, or `abandoned`. Surfaced in `margin list --json`
+  (`revision_state`, plus `current_commit` when amended) and flagged in the
+  timeline view (`~`/`!`/`×`). git has no stable change identity across amend, so
+  the field is reported as unsupported/omitted there.
+
+### Changed
+
+- **Breaking (store format):** annotation anchors now require a captured commit
+  hash, so `.margin/annotations.ndjson` logs written before this change will no
+  longer parse.
+
 ## [0.2.0]
 
 ### Added

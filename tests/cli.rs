@@ -7,8 +7,8 @@ use std::process::Command;
 
 use margin::anchor::{capture, CONTEXT_LINES};
 use margin::model::{
-    Actor, AnnotationId, AnnotationType, Event, EventKind, LineNumber, RepoRelPath, RevisionId,
-    Side,
+    Actor, AnnotationId, AnnotationType, CommitId, Event, EventKind, LineNumber, RepoRelPath,
+    RevisionId, Side,
 };
 use margin::store::Store;
 
@@ -57,6 +57,7 @@ fn list_json_resolve_round_trip() {
     let anchor = capture(
         RepoRelPath("src/limiter.rs".into()),
         RevisionId(rev_sha.clone()),
+        CommitId(rev_sha.clone()),
         Side::New,
         source,
         LineNumber::new(3).unwrap(),
@@ -129,9 +130,11 @@ fn status_wont_do_and_reopen() {
 
     let store = Store::open(path);
     let id = AnnotationId::new();
+    let commit = CommitId(rev.0.clone());
     let anchor = capture(
         RepoRelPath("f.rs".into()),
         rev,
+        commit,
         Side::New,
         "fn keep() {}\n",
         LineNumber::new(1).unwrap(),
@@ -192,9 +195,11 @@ fn old_side_anchor_resolves_against_parent() {
     // An old-side annotation on the deleted line, captured from the parent.
     let store = Store::open(path);
     let id = AnnotationId::new();
+    let commit = CommitId(rev.0.clone());
     let anchor = capture(
         RepoRelPath("f.rs".into()),
         rev,
+        commit,
         Side::Old,
         parent_source,
         LineNumber::new(2).unwrap(),
@@ -242,6 +247,7 @@ fn orphaned_annotation_is_flagged() {
     let anchor = capture(
         RepoRelPath("f.rs".into()),
         RevisionId("deadbeef".into()),
+        CommitId("deadbeef".into()),
         Side::New,
         "fn vanished() {}\n",
         LineNumber::new(1).unwrap(),
@@ -282,9 +288,11 @@ fn resolved_then_vanished_is_flagged_orphaned() {
 
     let store = Store::open(path);
     let id = AnnotationId::new();
+    let commit = CommitId(rev.0.clone());
     let anchor = capture(
         RepoRelPath("f.rs".into()),
         rev,
+        commit,
         Side::New,
         source,
         LineNumber::new(1).unwrap(),

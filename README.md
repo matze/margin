@@ -50,6 +50,9 @@ In the diff:
 
 Annotations: `e` edit · `r` reopen · `d` delete · `u` undo · `t` timeline.
 
+The timeline (`t`) flags when the annotated change has moved under jj: `~`
+amended/rebased, `!` divergent, `×` abandoned.
+
 ## Agent handoff
 
 The CLI is the contract: the agent reads the review and writes back its
@@ -67,6 +70,12 @@ margin install-skill                      # install the agent skill into ~/.clau
 `margin list --json` folds the event log into current per-annotation state
 (status, re-anchored location, snippet), so the agent never touches the raw
 NDJSON.
+
+Under jj, each annotation also reports a `revision_state` — `unchanged`,
+`amended`, `divergent`, or `abandoned` — tracking the annotated change across
+amend/rebase via its change id; `amended` adds `current_commit`. The field is
+omitted on git, which has no stable change identity across history edits, so its
+presence signals jj change tracking is in effect.
 
 ## Config
 

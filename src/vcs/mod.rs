@@ -17,7 +17,7 @@ use std::path::Path;
 
 use jiff::Timestamp;
 
-use crate::model::{LineNumber, RepoRelPath, RevisionId, Side};
+use crate::model::{CommitId, LineNumber, RepoRelPath, RevisionId, Side};
 
 /// Errors a VCS backend can surface.
 #[derive(Debug, thiserror::Error)]
@@ -181,6 +181,32 @@ pub trait Vcs {
 
     /// The full commit message (subject and body) for a revision.
     fn message(&self, revision: &RevisionId) -> Result<String, VcsError>;
+
+    /// The concrete commit `revision` points at right now, captured with an
+    /// anchor so later re-anchoring can detect amend/rebase.
+    fn commit_of(&self, revision: &RevisionId) -> Result<CommitId, VcsError>;
+
+    /// The commits `revision`'s change identity currently resolves to, for
+    /// classifying an annotation's revision as unchanged/amended/divergent/
+    /// abandoned at review time.
+    fn change_commits(&self, revision: &RevisionId) -> Result<ChangeCommits, VcsError>;
+}
+
+/// The commits a change identity currently resolves to (PRD §6 change tracking).
+///
+/// Backends with stable change identity (jj) report whether a change still
+/// exists and at which commit; git has no such identity across history edits and
+/// reports [`ChangeCommits::Unsupported`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangeCommits {
+    /// The change identity no longer resolves: it was abandoned.
+    None,
+    /// The change resolves to a single commit.
+    One(CommitId),
+    /// The change resolves to several commits: it is divergent.
+    Many(Vec<CommitId>),
+    /// The backend cannot track change identity across history edits (git).
+    Unsupported,
 }
 
 /// Which backend a repository uses.
@@ -276,6 +302,20 @@ impl Vcs for Backend {
         match self {
             Backend::Git(backend) => backend.message(revision),
             Backend::Jj(backend) => backend.message(revision),
+        }
+    }
+
+    fn commit_of(&self, revision: &RevisionId) -> Result<CommitId, VcsError> {
+        match self {
+            Backend::Git(backend) => backend.commit_of(revision),
+            Backend::Jj(backend) => backend.commit_of(revision),
+        }
+    }
+
+    fn change_commits(&self, revision: &RevisionId) -> Result<ChangeCommits, VcsError> {
+        match self {
+            Backend::Git(backend) => backend.change_commits(revision),
+            Backend::Jj(backend) => backend.change_commits(revision),
         }
     }
 }

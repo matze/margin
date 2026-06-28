@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{LineNumber, RepoRelPath, RevisionId, Side};
+use super::{CommitId, LineNumber, RepoRelPath, RevisionId, Side};
 
 /// The durable reference to where an annotation points (PRD §7, §8).
 ///
@@ -14,6 +14,9 @@ pub struct Anchor {
     pub file: RepoRelPath,
     /// Revision in whose version `start_line`/`end_line` are expressed.
     pub revision_id: RevisionId,
+    /// Concrete commit `revision_id` pointed at when the anchor was captured.
+    /// Compared against the change's current commit to detect amend/rebase.
+    pub commit_at_capture: CommitId,
     /// First anchored line (1-based, inclusive).
     pub start_line: LineNumber,
     /// Last anchored line (1-based, inclusive; equals `start_line` for a single line).

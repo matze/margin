@@ -5,8 +5,10 @@
 use std::path::Path;
 use std::process::Command;
 
-use margin::model::{RepoRelPath, RevisionId};
-use margin::vcs::{Backend, Base, ChangeKind, DiffLineKind, Kind, ListingSource, Vcs};
+use margin::model::{CommitId, RepoRelPath, RevisionId};
+use margin::vcs::{
+    Backend, Base, ChangeCommits, ChangeKind, DiffLineKind, Kind, ListingSource, Vcs,
+};
 
 /// Discover a forced-git backend for `path`.
 fn git_backend(path: &Path) -> Backend {
@@ -197,4 +199,21 @@ fn file_at_reads_content_at_revision() {
         .unwrap();
 
     assert_eq!(content, "version one\n");
+}
+
+#[test]
+fn commit_of_is_the_sha_and_change_tracking_is_unsupported() {
+    let repo = init_repo();
+    let path = repo.path();
+    let rev = commit(path, "only", &[("f.txt", "x\n")]);
+
+    let backend = git_backend(path);
+
+    // git has no change identity distinct from the commit, so commit_of echoes
+    // the SHA and change_commits cannot follow a change across history edits.
+    assert_eq!(backend.commit_of(&rev).unwrap(), CommitId(rev.0.clone()));
+    assert_eq!(
+        backend.change_commits(&rev).unwrap(),
+        ChangeCommits::Unsupported
+    );
 }

@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::parse::{parse_diff, parse_log_line, FIELD_SEP};
-use super::{Base, CommitDiff, ListingSource, Revision, Revisions, Vcs, VcsError};
-use crate::model::{RepoRelPath, RevisionId};
+use super::{Base, ChangeCommits, CommitDiff, ListingSource, Revision, Revisions, Vcs, VcsError};
+use crate::model::{CommitId, RepoRelPath, RevisionId};
 
 /// The revset naming the working-copy commit, always included in the listing so
 /// an undescribed/empty working revision is still reviewable.
@@ -158,6 +158,44 @@ impl Vcs for Backend {
             .trim_end()
             .to_string())
     }
+
+    fn commit_of(&self, revision: &RevisionId) -> Result<CommitId, VcsError> {
+        match self.change_commits(revision)? {
+            ChangeCommits::One(commit) => Ok(commit),
+            // At capture time the change is the one under the cursor; absence or
+            // divergence here means the revset stopped resolving to it.
+            _ => Err(VcsError::Parse {
+                what: "change_id",
+                detail: format!("{} resolved to no single commit", revision.0),
+            }),
+        }
+    }
+
+    fn change_commits(&self, revision: &RevisionId) -> Result<ChangeCommits, VcsError> {
+        // `change_id(..)` matches every commit carrying the change id: an empty
+        // set for an abandoned change, several for a divergent one. A bare
+        // change-id symbol instead errors on divergence, so it can't report it.
+        let revset = format!("change_id(\"{}\")", revision.0);
+        let commits: Vec<CommitId> = self
+            .run(&[
+                "log",
+                "-r",
+                &revset,
+                "--no-graph",
+                "-T",
+                "commit_id ++ \"\\n\"",
+            ])?
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(|id| CommitId(id.to_string()))
+            .collect();
+
+        Ok(match commits.len() {
+            0 => ChangeCommits::None,
+            1 => ChangeCommits::One(commits.into_iter().next().expect("len checked")),
+            _ => ChangeCommits::Many(commits),
+        })
+    }
 }
 
 /// jj's virtual root commit has an all-`z` change id; it is never a real base.
@@ -241,5 +279,103 @@ mod tests {
 
         let diff = backend.diff(&working.id).unwrap();
         assert!(!diff.files.is_empty(), "undescribed @ still has a diff");
+    }
+
+    #[test]
+    fn change_commits_resolves_to_the_single_current_commit() {
+        if !jj_available() {
+            return;
+        }
+
+        let repo = fixture();
+        let backend = Backend::discover(repo.path()).unwrap();
+        let head = backend.head().unwrap();
+
+        match backend.change_commits(&head).unwrap() {
+            ChangeCommits::One(commit) => {
+                assert_eq!(backend.commit_of(&head).unwrap(), commit)
+            }
+            other => panic!("expected one commit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn amending_a_change_keeps_its_id_but_moves_its_commit() {
+        if !jj_available() {
+            return;
+        }
+
+        let repo = fixture();
+        let path = repo.path();
+        let backend = Backend::discover(path).unwrap();
+
+        // `head` is the change id (stable); capture the commit it points at now.
+        let head = backend.head().unwrap();
+        let before = backend.commit_of(&head).unwrap();
+
+        // Editing the working copy amends @ in place: same change id, new commit
+        // (the next jj command snapshots the change).
+        std::fs::write(path.join("file.txt"), "v1\nworking edit\nmore\n").unwrap();
+
+        match backend.change_commits(&head).unwrap() {
+            ChangeCommits::One(after) => assert_ne!(
+                after, before,
+                "amend should move the commit under a stable change id"
+            ),
+            other => panic!("expected one commit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn abandoned_change_resolves_to_no_commit() {
+        if !jj_available() {
+            return;
+        }
+
+        let repo = fixture();
+        let path = repo.path();
+        let backend = Backend::discover(path).unwrap();
+
+        let doomed = backend.head().unwrap();
+        jj(path, &["abandon", &doomed.0]);
+
+        assert_eq!(
+            backend.change_commits(&doomed).unwrap(),
+            ChangeCommits::None
+        );
+    }
+
+    /// Divergence (one change id, several commits) is constructed via concurrent
+    /// operations, exercising the [`ChangeCommits::Many`] path.
+    #[test]
+    fn divergent_change_resolves_to_many_commits() {
+        if !jj_available() {
+            return;
+        }
+
+        let repo = fixture();
+        let path = repo.path();
+        let backend = Backend::discover(path).unwrap();
+
+        // Detach @ so the target change is a stable, non-working commit.
+        jj(path, &["describe", "-m", "target"]);
+        let target = backend.head().unwrap();
+        jj(path, &["new"]);
+
+        // Two concurrent rewrites of the same change diverge it: the second runs
+        // against the operation before the first, so neither supersedes the other.
+        jj(path, &["describe", &target.0, "-m", "a"]);
+        jj(
+            path,
+            &["describe", &target.0, "-m", "b", "--at-operation", "@-"],
+        );
+
+        assert!(
+            matches!(
+                backend.change_commits(&target).unwrap(),
+                ChangeCommits::Many(_)
+            ),
+            "concurrent rewrites should diverge the change"
+        );
     }
 }

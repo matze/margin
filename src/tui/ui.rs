@@ -14,7 +14,7 @@ use ratatui::Frame;
 
 use crate::export::{status_label, type_label};
 use crate::model::{Event, EventKind, Side};
-use crate::review::ResolvedAnnotation;
+use crate::review::{ResolvedAnnotation, RevisionState};
 use crate::vcs::{ChangeKind, DiffLine, DiffLineKind, ListingSource};
 
 use super::app::{
@@ -1475,8 +1475,37 @@ fn render_timeline(frame: &mut Frame, app: &App, area: Rect) {
         Style::default().add_modifier(Modifier::BOLD),
     )));
 
+    if let Some(line) = revision_state_line(&resolved.revision_state, app.palette) {
+        lines.push(line);
+    }
+
     let view: Vec<Line> = lines.into_iter().skip(timeline.scroll).collect();
     frame.render_widget(Paragraph::new(view).wrap(Wrap { trim: false }), inner);
+}
+
+/// A line flagging that the anchored change moved in history (amended/rebased),
+/// diverged, or was abandoned. `None` when the change is unchanged or the
+/// backend can't track change identity (git), so the modal stays quiet.
+fn revision_state_line(state: &RevisionState, palette: Palette) -> Option<Line<'static>> {
+    let (marker, text) = match state {
+        RevisionState::Unchanged | RevisionState::Unsupported => return None,
+        RevisionState::Amended { current } => {
+            let short: String = current.0.chars().take(7).collect();
+            ('~', format!("change amended/rebased since (now {short})"))
+        }
+        RevisionState::Divergent { commits } => (
+            '!',
+            format!("change is divergent ({} commits)", commits.len()),
+        ),
+        RevisionState::Abandoned => ('×', "change was abandoned".to_string()),
+    };
+
+    Some(Line::from(Span::styled(
+        format!("revision: {marker} {text}"),
+        Style::default()
+            .fg(palette.marker_attention)
+            .add_modifier(Modifier::BOLD),
+    )))
 }
 
 /// Render one event as a header line plus an optional indented detail line.

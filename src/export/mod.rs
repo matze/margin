@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::anchor::Resolution;
 use crate::model::{AnnotationType, Side, Status};
-use crate::review::ResolvedAnnotation;
+use crate::review::{ResolvedAnnotation, RevisionState};
 
 /// Errors from rendering the JSON view.
 #[derive(Debug, thiserror::Error)]
@@ -40,6 +40,15 @@ struct AnnotationView<'a> {
     /// True when the anchor no longer resolves, regardless of `status` — so a
     /// resolved/declined annotation whose lines vanished is still legible.
     orphaned: bool,
+    /// How the anchored change stands in history: `unchanged`, `amended`,
+    /// `divergent`, or `abandoned`. Omitted on backends without change identity
+    /// (git), so its presence also signals jj change tracking is in effect.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    revision_state: Option<&'static str>,
+    /// The change's current commit when it differs from the captured one
+    /// (`revision_state` is `amended`); absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_commit: Option<&'a str>,
     anchored_text: &'a [String],
     addressed_by: Vec<&'a str>,
 }
@@ -61,6 +70,11 @@ impl<'a> From<&'a ResolvedAnnotation> for AnnotationView<'a> {
                 Resolution::Orphaned => None,
             },
             orphaned: matches!(resolved.location, Resolution::Orphaned),
+            revision_state: revision_state_label(&resolved.revision_state),
+            current_commit: match &resolved.revision_state {
+                RevisionState::Amended { current } => Some(current.0.as_str()),
+                _ => None,
+            },
             anchored_text: &annotation.anchor.anchored_text,
             addressed_by: annotation
                 .addressed_by
@@ -81,6 +95,18 @@ pub fn status_label(status: Status) -> &'static str {
     }
 }
 
+/// Stable label for an annotation's revision state, or `None` when the backend
+/// cannot track change identity (git).
+fn revision_state_label(state: &RevisionState) -> Option<&'static str> {
+    match state {
+        RevisionState::Unchanged => Some("unchanged"),
+        RevisionState::Amended { .. } => Some("amended"),
+        RevisionState::Divergent { .. } => Some("divergent"),
+        RevisionState::Abandoned => Some("abandoned"),
+        RevisionState::Unsupported => None,
+    }
+}
+
 /// Human-readable annotation-type label.
 pub fn type_label(annotation_type: AnnotationType) -> &'static str {
     match annotation_type {
@@ -89,5 +115,63 @@ pub fn type_label(annotation_type: AnnotationType) -> &'static str {
         AnnotationType::Suggestion => "suggestion",
         AnnotationType::Nit => "nit",
         AnnotationType::Praise => "praise",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::anchor::Resolution;
+    use crate::model::{
+        Anchor, Annotation, AnnotationId, CommitId, LineNumber, RepoRelPath, RevisionId,
+    };
+
+    fn resolved(revision_state: RevisionState) -> ResolvedAnnotation {
+        ResolvedAnnotation {
+            annotation: Annotation {
+                id: AnnotationId::new(),
+                anchor: Anchor {
+                    file: RepoRelPath("f.rs".into()),
+                    revision_id: RevisionId("change0".into()),
+                    commit_at_capture: CommitId("commit0".into()),
+                    start_line: LineNumber::new(1).unwrap(),
+                    end_line: LineNumber::new(1).unwrap(),
+                    side: Side::New,
+                    context_before: vec![],
+                    context_after: vec![],
+                    anchored_text: vec!["fn f() {}".into()],
+                },
+                body: "look".into(),
+                annotation_type: None,
+                status: Status::Open,
+                addressed_by: vec![],
+                timeline: vec![],
+            },
+            location: Resolution::Located {
+                start: LineNumber::new(1).unwrap(),
+                end: LineNumber::new(1).unwrap(),
+            },
+            status: Status::Open,
+            revision_state,
+        }
+    }
+
+    #[test]
+    fn amended_serializes_state_and_current_commit() {
+        let json = render_json(&[resolved(RevisionState::Amended {
+            current: CommitId("commit9".into()),
+        })])
+        .unwrap();
+
+        assert!(json.contains("\"revision_state\": \"amended\""), "{json}");
+        assert!(json.contains("\"current_commit\": \"commit9\""), "{json}");
+    }
+
+    #[test]
+    fn unsupported_omits_revision_fields() {
+        let json = render_json(&[resolved(RevisionState::Unsupported)]).unwrap();
+
+        assert!(!json.contains("revision_state"), "{json}");
+        assert!(!json.contains("current_commit"), "{json}");
     }
 }

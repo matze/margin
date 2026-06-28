@@ -118,8 +118,8 @@ impl Store {
 mod tests {
     use super::*;
     use crate::model::{
-        Actor, Anchor, AnnotationId, AnnotationType, Event, EventKind, LineNumber, RepoRelPath,
-        RevisionId, Side, Status,
+        Actor, Anchor, AnnotationId, AnnotationType, CommitId, Event, EventKind, LineNumber,
+        RepoRelPath, RevisionId, Side, Status,
     };
     use std::path::PathBuf;
 
@@ -131,6 +131,7 @@ mod tests {
                 anchor: Anchor {
                     file: RepoRelPath(PathBuf::from("src/limiter.rs")),
                     revision_id: RevisionId("a1b2c3".into()),
+                    commit_at_capture: CommitId("a1b2c3".into()),
                     start_line: LineNumber::new(12).unwrap(),
                     end_line: LineNumber::new(14).unwrap(),
                     side: Side::New,

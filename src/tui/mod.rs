@@ -601,9 +601,11 @@ mod tests {
             .clone();
         let b_path = RepoRelPath(std::path::PathBuf::from("b.rs"));
         let source = backend.file_at(&revision, &b_path).unwrap();
+        let commit = backend.commit_of(&revision).unwrap();
         let anchor = capture(
             b_path.clone(),
             revision,
+            commit,
             Side::New,
             &source,
             LineNumber::new(1).unwrap(),
