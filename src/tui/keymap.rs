@@ -15,6 +15,8 @@ pub enum Action {
     HalfPageDown,
     NextChange,
     PrevChange,
+    NextCommit,
+    PrevCommit,
     ExpandContext,
     CollapseContext,
     FocusToggle,
@@ -82,6 +84,8 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('k') | KeyCode::Up => Some(Action::Up),
         KeyCode::Char('n') => Some(Action::NextChange),
         KeyCode::Char('p') => Some(Action::PrevChange),
+        KeyCode::Char('J') => Some(Action::NextCommit),
+        KeyCode::Char('K') => Some(Action::PrevCommit),
         KeyCode::Char('+') | KeyCode::Char('=') => Some(Action::ExpandContext),
         KeyCode::Char('-') | KeyCode::Char('_') => Some(Action::CollapseContext),
         KeyCode::Tab => Some(Action::FocusToggle),
@@ -115,6 +119,18 @@ mod tests {
         assert_eq!(map(press(KeyCode::Down), false), Some(Action::Down));
         assert_eq!(map(press(KeyCode::Char('k')), false), Some(Action::Up));
         assert_eq!(map(press(KeyCode::Up), false), Some(Action::Up));
+    }
+
+    #[test]
+    fn shift_jk_steps_between_commits() {
+        assert_eq!(
+            map(press(KeyCode::Char('J')), false),
+            Some(Action::NextCommit)
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('K')), false),
+            Some(Action::PrevCommit)
+        );
     }
 
     #[test]

@@ -375,6 +375,8 @@ impl App {
             Action::HalfPageDown => self.move_page(Direction::Down),
             Action::NextChange => self.jump_change(Direction::Down),
             Action::PrevChange => self.jump_change(Direction::Up),
+            Action::NextCommit => self.step_commit(Direction::Down),
+            Action::PrevCommit => self.step_commit(Direction::Up),
             Action::ExpandContext => self.expand_context(Direction::Down),
             Action::CollapseContext => self.expand_context(Direction::Up),
             Action::FocusToggle => self.toggle_focus(),
@@ -496,6 +498,18 @@ impl App {
         if let Some(index) = target {
             self.diff_cursor = index;
         }
+    }
+
+    /// Switch to the next/previous commit while keeping the diff focused, so the
+    /// review can move between commits without returning to the sidebar.
+    fn step_commit(&mut self, direction: Direction) {
+        if !matches!(self.overlay, Overlay::None) {
+            return;
+        }
+
+        let max = self.revisions.len().saturating_sub(1);
+        self.commit_cursor = step_index(self.commit_cursor, direction, max);
+        self.load_selected_commit();
     }
 
     /// True when `index` begins a change section: a changed line whose

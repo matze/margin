@@ -836,6 +836,7 @@ fn diff_help_line(app: &App) -> Line<'static> {
     let hints: &[(&str, &str)] = &[
         ("j/k ↑↓", "move"),
         ("n/p", "change"),
+        ("J/K", "commit"),
         ("+/-", "context"),
         ("v", "select"),
         ("a", "annotate"),
