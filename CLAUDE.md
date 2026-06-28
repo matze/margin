@@ -27,6 +27,9 @@ commit's diff; a coding agent consumes the annotations through the `margin` CLI
 - Keep the core terminal-free so it stays testable without a TTY.
 - Palette is ANSI-first (default fg/bg inherit the terminal); per-mode RGB is
   reserved for diff/selection/cursor/annotation backgrounds only.
+- `README.md` documents the CLI flags/subcommands (`cli.rs`) and TUI keys
+  (`keymap.rs`). It drifts easily — when you change either, update the README's
+  Usage/Navigation/Agent-handoff sections in the same change.
 
 ## Verify
 

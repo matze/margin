@@ -14,11 +14,41 @@ Run inside a repository:
 ```sh
 margin                  # open the TUI; sidebar lists commits in <base>..@
 margin --base develop   # set the base ref explicitly
-margin --rev <id>       # jump straight into one commit's diff
+margin -n 100           # with no base, list this many recent commits (default 50)
+margin --theme dark     # force a theme; --vcs git|jj forces a backend
 ```
 
 Select a commit, navigate files → hunks → lines, mark a line or range, and type
 an annotation. Annotations persist in `.margin/annotations.ndjson`.
+
+### Navigation
+
+Three panes: the commit list, the changed-file panel beneath it, and the diff.
+`Tab` cycles focus between them, moving through the file panel scrolls the diff
+to that file.
+
+| Key | Action |
+| --- | --- |
+| `j` / `k`, `↓` / `↑` | move within the focused pane |
+| `Tab` | cycle focus: commits → diff → files |
+| `Enter` | open the commit / jump to the file / annotate the line |
+| `g` | toggle the annotation overview |
+| `q` | quit |
+
+In the diff:
+
+| Key | Action |
+| --- | --- |
+| `n` / `p` | next / previous change |
+| `J` / `K` | next / previous commit |
+| `Ctrl-d` / `Ctrl-u` | half-page down / up |
+| `+` / `-` | expand / collapse context |
+| `s` | toggle split / unified view |
+| `v` (or `Space`) | start / stop a line-range selection |
+| `a` | annotate the current line or selection |
+| `Esc` / `h` | cancel / back to the sidebar |
+
+Annotations: `e` edit · `r` reopen · `d` delete · `u` undo · `t` timeline.
 
 ## Agent handoff
 
@@ -31,6 +61,7 @@ margin list [--open]                      # same, one human-readable line per an
 margin status <id> resolved [--reply ..]  # mark one addressed (write)
 margin status <id> wont-do  [--reply ..]  # decline one
 margin status <id> open     [--reason ..] # reopen for re-review
+margin install-skill                      # install the agent skill into ~/.claude/skills/
 ```
 
 `margin list --json` folds the event log into current per-annotation state
