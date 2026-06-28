@@ -294,9 +294,9 @@ fn screen_rows(app: &App) -> Vec<ScreenRow> {
 /// The maximal run of `app.rows` lines of `kind` starting at `start`.
 fn run(app: &App, start: usize, kind: DiffLineKind) -> Vec<usize> {
     (start..app.rows.len())
-        .take_while(|&index| {
-            matches!(&app.rows[index], Row::Line { line, .. } if line.kind == kind)
-        })
+        .take_while(
+            |&index| matches!(&app.rows[index], Row::Line { line, .. } if line.kind == kind),
+        )
         .collect()
 }
 
@@ -1018,7 +1018,10 @@ fn render_cell(
     let palette = app.palette;
 
     let Some(row_index) = row else {
-        return vec![Span::styled(" ".repeat(width), Style::default().bg(pane_bg))];
+        return vec![Span::styled(
+            " ".repeat(width),
+            Style::default().bg(pane_bg),
+        )];
     };
 
     let Some(Row::Line {
@@ -1027,7 +1030,10 @@ fn render_cell(
         line,
     }) = app.rows.get(row_index)
     else {
-        return vec![Span::styled(" ".repeat(width), Style::default().bg(pane_bg))];
+        return vec![Span::styled(
+            " ".repeat(width),
+            Style::default().bg(pane_bg),
+        )];
     };
 
     let number = match side {
@@ -1079,7 +1085,10 @@ fn render_cell(
                 .add_modifier(emphasis),
         ),
         Span::styled(
-            format!("{:>4} ", number.map(|n| n.get().to_string()).unwrap_or_default()),
+            format!(
+                "{:>4} ",
+                number.map(|n| n.get().to_string()).unwrap_or_default()
+            ),
             Style::default()
                 .fg(palette.gutter_fg)
                 .bg(bg)
@@ -1092,15 +1101,20 @@ fn render_cell(
     ];
 
     if highlight {
-        spans.extend(highlighter.spans(extension, &line.content).into_iter().map(|span| {
-            Span::styled(
-                span.text,
-                Style::default()
-                    .fg(span.color)
-                    .bg(bg)
-                    .add_modifier(emphasis),
-            )
-        }));
+        spans.extend(
+            highlighter
+                .spans(extension, &line.content)
+                .into_iter()
+                .map(|span| {
+                    Span::styled(
+                        span.text,
+                        Style::default()
+                            .fg(span.color)
+                            .bg(bg)
+                            .add_modifier(emphasis),
+                    )
+                }),
+        );
     } else {
         spans.push(Span::styled(
             line.content.clone(),

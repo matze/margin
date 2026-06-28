@@ -690,7 +690,13 @@ mod tests {
         git(path, &["config", "user.email", "t@example.com"]);
         git(path, &["config", "user.name", "T"]);
         let original: String = (1..=12)
-            .map(|n| if n == 6 { "apple\n".into() } else { format!("line{n}\n") })
+            .map(|n| {
+                if n == 6 {
+                    "apple\n".into()
+                } else {
+                    format!("line{n}\n")
+                }
+            })
             .collect();
         std::fs::write(path.join("code.rs"), &original).unwrap();
         git(path, &["add", "-A"]);
