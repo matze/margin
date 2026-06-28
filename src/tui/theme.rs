@@ -17,8 +17,11 @@
 //! (`Reset`). Only the diff and highlight *backgrounds* keep a faint per-mode
 //! tint, since no ANSI slot provides a subtle background.
 
+#[cfg(unix)]
 use std::io::{IsTerminal, Write};
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, RawFd};
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use ratatui::style::Color;
@@ -55,6 +58,7 @@ impl ThemeMode {
 }
 
 /// Classify an sRGB background color by perceived luminance.
+#[cfg(any(unix, test))]
 fn mode_from_rgb(r: u8, g: u8, b: u8) -> ThemeMode {
     let luma = 0.2126 * f32::from(r) + 0.7152 * f32::from(g) + 0.0722 * f32::from(b);
 
@@ -67,6 +71,7 @@ fn mode_from_rgb(r: u8, g: u8, b: u8) -> ThemeMode {
 
 /// Ask the terminal for its background color via OSC 11 and classify it.
 /// Returns `None` when not attached to a terminal or the query fails/times out.
+#[cfg(unix)]
 fn query_terminal_background() -> Option<ThemeMode> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return None;
@@ -77,9 +82,17 @@ fn query_terminal_background() -> Option<ThemeMode> {
     Some(mode_from_rgb(r, g, b))
 }
 
+/// The OSC 11 query relies on Unix `poll`/raw-fd reads; on other platforms fall
+/// back to `COLORFGBG`/dark.
+#[cfg(not(unix))]
+fn query_terminal_background() -> Option<ThemeMode> {
+    None
+}
+
 /// Query the terminal background (OSC 11) and read until the DA1 reply that
 /// follows it, which bounds the read without relying on a guessed timeout. The
 /// outer deadline only guards terminals that answer neither request.
+#[cfg(unix)]
 fn osc11_reply() -> Option<String> {
     let mut out = std::io::stdout();
     out.write_all(b"\x1b]11;?\x07\x1b[c").ok()?;
@@ -117,6 +130,7 @@ fn osc11_reply() -> Option<String> {
 
 /// Read a single byte directly from `fd`, bypassing buffering. `None` on EOF or
 /// error.
+#[cfg(unix)]
 fn read_byte(fd: RawFd) -> Option<u8> {
     let mut byte = 0u8;
 
@@ -128,6 +142,7 @@ fn read_byte(fd: RawFd) -> Option<u8> {
 
 /// Whether `buf` ends with a complete DA1 reply (`ESC [ … c`, parameters limited
 /// to digits, `;`, and `?`).
+#[cfg(any(unix, test))]
 fn ends_with_da1(buf: &[u8]) -> bool {
     if buf.last() != Some(&b'c') {
         return false;
@@ -142,8 +157,13 @@ fn ends_with_da1(buf: &[u8]) -> bool {
 }
 
 /// True when `fd` has data ready within `timeout`.
+#[cfg(unix)]
 fn fd_readable(fd: RawFd, timeout: Duration) -> bool {
-    let mut poll_fd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+    let mut poll_fd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
     let millis = timeout.as_millis().min(i32::MAX as u128) as i32;
 
     // SAFETY: `poll_fd` is a single valid `pollfd` living for the call's duration.
@@ -152,6 +172,7 @@ fn fd_readable(fd: RawFd, timeout: Duration) -> bool {
 }
 
 /// Parse `rgb:rrrr/gggg/bbbb` out of an OSC 11 reply into an sRGB triple.
+#[cfg(any(unix, test))]
 fn parse_osc11(reply: &str) -> Option<(u8, u8, u8)> {
     let rest = reply.split("rgb:").nth(1)?;
     let mut parts = rest.split('/');
@@ -164,6 +185,7 @@ fn parse_osc11(reply: &str) -> Option<(u8, u8, u8)> {
 }
 
 /// Parse one hex color component (2- or 4-digit) and scale it to 8 bits.
+#[cfg(any(unix, test))]
 fn parse_hex_component(value: &str) -> Option<u8> {
     let hex: String = value.chars().take_while(char::is_ascii_hexdigit).collect();
 
