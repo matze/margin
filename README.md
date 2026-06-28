@@ -12,7 +12,7 @@ throwaway PR or GitHub round-trip.
 Run inside a repository:
 
 ```sh
-margin                  # open the TUI; sidebar lists commits in <base>..@
+margin                  # open the TUI; the band lists commits in <base>..@
 margin --base develop   # set the base ref explicitly
 margin -n 100           # with no base, list this many recent commits (default 50)
 margin --theme dark     # force a theme; --vcs git|jj forces a backend
@@ -23,16 +23,18 @@ an annotation. Annotations persist in `.margin/annotations.ndjson`.
 
 ### Navigation
 
-Three panes: the commit list, the changed-file panel beneath it, and the diff.
-`Tab` cycles focus between them, moving through the file panel scrolls the diff
-to that file.
+A top band sits above the full-width diff and shows one view at a time: the
+commit list beside the selected commit's message, the changed-file list, or the
+annotation overview. `Shift-Tab` cycles which view the band shows; `Tab` toggles
+focus between the band and the diff. Moving through the file list scrolls the
+diff to that file, and `Ctrl-u` / `Ctrl-d` scroll the commit message.
 
 | Key | Action |
 | --- | --- |
 | `j` / `k`, `↓` / `↑` | move within the focused pane |
-| `Tab` | cycle focus: commits → diff → files |
-| `Enter` | open the commit / jump to the file / annotate the line |
-| `g` | toggle the annotation overview |
+| `Tab` | toggle focus between the band and the diff |
+| `Shift-Tab` | cycle the band view: commits → files → annotations |
+| `Enter` | open the commit / jump to the file or annotation / annotate the line |
 | `q` | quit |
 
 In the diff:
@@ -46,7 +48,7 @@ In the diff:
 | `s` | toggle split / unified view |
 | `v` (or `Space`) | start / stop a line-range selection |
 | `a` | annotate the current line or selection |
-| `Esc` / `h` | cancel / back to the sidebar |
+| `Esc` / `h` | cancel / back to the band |
 
 Annotations: `e` edit · `r` reopen · `d` delete · `u` undo · `t` timeline.
 

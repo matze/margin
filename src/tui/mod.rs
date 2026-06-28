@@ -217,9 +217,18 @@ mod tests {
             .draw(|frame| ui::render(frame, &mut app, &highlighter))
             .unwrap();
 
-        // Diff pane body starts at x=32 (sidebar width) and y=1 (under header).
+        // The diff spans the full width directly below the band rule (the `┴`
+        // row), with no header of its own; its first row is the File header
+        // holding the cursor.
+        let rule_y = terminal
+            .backend()
+            .to_string()
+            .lines()
+            .position(|line| line.contains('┴'))
+            .expect("band rule row") as u16;
+        let cursor_y = rule_y + 1;
         let buffer = terminal.backend().buffer();
-        let painted = (33..120).any(|x| buffer.cell((x, 1)).map(|c| c.bg) == Some(cursor_bg));
+        let painted = (0..120).any(|x| buffer.cell((x, cursor_y)).map(|c| c.bg) == Some(cursor_bg));
         assert!(
             painted,
             "cursor row should be highlighted:\n{}",
@@ -302,13 +311,13 @@ mod tests {
         app.apply(keymap::Action::EditorChar('b'));
         app.apply(keymap::Action::EditorSave);
 
-        app.apply(keymap::Action::ToggleOverview);
+        app.apply(keymap::Action::ViewAnnotations);
         let first = app.diff_cursor;
 
         app.apply(keymap::Action::Down);
         assert!(
-            matches!(app.focus, Focus::Sidebar),
-            "overview keeps focus in the sidebar"
+            matches!(app.focus, Focus::Band),
+            "overview keeps focus in the band"
         );
         assert_ne!(
             app.diff_cursor, first,
@@ -456,7 +465,7 @@ mod tests {
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         assert_eq!(app.annotations()[0].status, Status::Resolved);
 
-        app.apply(keymap::Action::ToggleOverview);
+        app.apply(keymap::Action::ViewAnnotations);
         app.apply(keymap::Action::Reopen);
 
         assert_eq!(app.annotations()[0].status, Status::Open);
@@ -499,7 +508,7 @@ mod tests {
         assert_eq!(app.annotations().len(), 1);
 
         // Open the sidebar overview and delete the selected annotation.
-        app.apply(keymap::Action::ToggleOverview);
+        app.apply(keymap::Action::ViewAnnotations);
         app.apply(keymap::Action::Delete);
 
         assert!(app.annotations().is_empty(), "annotation should fold away");
@@ -552,7 +561,7 @@ mod tests {
         let anchored = app.annotations()[0].annotation.anchor.start_line.get();
 
         // Move off the commit, open the overview, and jump to the annotation.
-        app.apply(keymap::Action::ToggleOverview);
+        app.apply(keymap::Action::ViewAnnotations);
         app.apply(keymap::Action::Confirm);
 
         assert!(
@@ -650,7 +659,7 @@ mod tests {
         let repo = fixture();
         let mut app = app_with_annotation(repo.path());
 
-        app.apply(keymap::Action::ToggleOverview);
+        app.apply(keymap::Action::ViewAnnotations);
         app.apply(keymap::Action::Edit);
         assert!(app.is_editing());
 
@@ -671,7 +680,7 @@ mod tests {
         let repo = fixture();
         let mut app = app_with_annotation(repo.path());
 
-        app.apply(keymap::Action::ToggleOverview);
+        app.apply(keymap::Action::ViewAnnotations);
         app.apply(keymap::Action::Timeline);
 
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
@@ -743,13 +752,12 @@ mod tests {
             .draw(|frame| ui::render(frame, &mut app, &highlighter))
             .unwrap();
 
-        // Drop the sidebar and its divider so only the diff pane remains; the
-        // next `│` is the split cell divider.
-        let diff_pane = |line: String| line.split_once('│').unwrap().1.to_string();
+        // The diff spans the full width, so the only `│` on a diff line is the
+        // split cell divider.
 
         // The removed "apple" and its paired added "banana" share one screen row,
         // old on the left of the divider, new on the right.
-        let paired = diff_pane(row_with(&terminal, "apple"));
+        let paired = row_with(&terminal, "apple");
         let divider = paired.find('│').expect("split row has a cell divider");
         assert!(
             paired.find("apple").unwrap() < divider,
@@ -762,10 +770,10 @@ mod tests {
 
         // The pure addition "cherry" renders right-only: nothing but blanks left
         // of the divider on its row.
-        let added = diff_pane(row_with(&terminal, "cherry"));
+        let added = row_with(&terminal, "cherry");
         let divider = added.find('│').unwrap();
         assert!(
-            added[..divider].trim().is_empty(),
+            !added[..divider].contains(char::is_alphabetic),
             "pure addition has a blank left cell:\n{added}"
         );
     }
@@ -784,11 +792,8 @@ mod tests {
             .draw(|frame| ui::render(frame, &mut app, &highlighter))
             .unwrap();
 
-        // The cell divider column within the diff pane (after the sidebar divider).
-        let cell_column = |line: &str| {
-            line.split_once('│')
-                .and_then(|(_, pane)| pane.chars().position(|c| c == '│'))
-        };
+        // The diff is full width, so the cell divider is the first `│` on a row.
+        let cell_column = |line: &str| line.chars().position(|c| c == '│');
 
         let rendered = terminal.backend().to_string();
         let content = cell_column(rendered.lines().find(|l| l.contains("apple")).unwrap())
@@ -889,45 +894,49 @@ mod tests {
         App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap()
     }
 
-    /// Cycle focus until the file panel has it.
+    /// Show the file list in the band (which focuses it).
     fn focus_file_panel(app: &mut App) {
-        while !matches!(app.focus, super::app::Focus::Files) {
-            app.apply(keymap::Action::FocusToggle);
-        }
+        app.apply(keymap::Action::ViewFiles);
     }
 
     #[test]
-    fn tab_reaches_the_file_panel_but_overview_skips_it() {
-        use super::app::{Focus, SidebarView};
+    fn tab_toggles_between_the_band_and_the_diff() {
+        use super::app::Focus;
 
         let repo = multi_file_fixture();
         let mut app = multi_file_app(repo.path());
 
-        // The cycle is Diff → Files → Sidebar → Diff, so a tab out of the
-        // sidebar lands on the diff, not the file panel.
-        focus_file_panel(&mut app);
+        // A single feature commit over the base starts in the diff.
+        assert!(matches!(app.focus, Focus::Diff));
         app.apply(keymap::Action::FocusToggle);
-        assert!(
-            matches!(app.focus, Focus::Sidebar),
-            "tab leaves the file panel for the sidebar"
-        );
+        assert!(matches!(app.focus, Focus::Band), "tab moves to the band");
         app.apply(keymap::Action::FocusToggle);
         assert!(
             matches!(app.focus, Focus::Diff),
-            "tab out of the sidebar goes to the diff, skipping the file panel"
+            "tab moves back to the diff"
+        );
+    }
+
+    #[test]
+    fn shift_tab_cycles_the_band_views() {
+        use super::app::{BandView, Focus};
+
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        app.apply(keymap::Action::ViewCommits);
+        assert!(matches!(app.band, BandView::Commits));
+        assert!(
+            matches!(app.focus, Focus::Band),
+            "showing a view focuses it"
         );
 
-        // The annotation overview has no file panel, so tab cycles between just
-        // the sidebar and the diff and never reaches the panel.
-        app.apply(keymap::Action::ToggleOverview);
-        assert!(matches!(app.sidebar, SidebarView::Annotations { .. }));
-        for _ in 0..4 {
-            app.apply(keymap::Action::FocusToggle);
-            assert!(
-                !matches!(app.focus, Focus::Files),
-                "overview tab skips the file panel"
-            );
-        }
+        app.apply(keymap::Action::CycleView);
+        assert!(matches!(app.band, BandView::Files));
+        app.apply(keymap::Action::CycleView);
+        assert!(matches!(app.band, BandView::Annotations));
+        app.apply(keymap::Action::CycleView);
+        assert!(matches!(app.band, BandView::Commits), "cycle wraps around");
     }
 
     #[test]
@@ -941,8 +950,8 @@ mod tests {
         app.apply(keymap::Action::Down);
 
         assert!(
-            matches!(app.focus, Focus::Files),
-            "moving keeps focus in the panel"
+            matches!(app.focus, Focus::Band),
+            "moving keeps focus in the band"
         );
         assert!(
             matches!(app.rows[app.diff_cursor], Row::File { .. }),
@@ -1012,6 +1021,7 @@ mod tests {
     fn file_panel_lists_changed_paths() {
         let repo = multi_file_fixture();
         let mut app = multi_file_app(repo.path());
+        app.apply(keymap::Action::ViewFiles);
 
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();

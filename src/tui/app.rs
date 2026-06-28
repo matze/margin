@@ -26,15 +26,26 @@ use super::theme::{Palette, ThemeMode};
 /// Lines of source context revealed per expand/collapse step.
 const CONTEXT_STEP: u32 = 10;
 
-/// Visible rows of the commit-message footer; longer messages scroll.
+/// Assumed visible rows of the message column for scroll clamping; longer
+/// messages scroll.
 pub const COMMIT_MESSAGE_VIEWPORT: usize = 8;
 
-/// Which top-level pane has keyboard focus.
+/// Which top-level pane has keyboard focus. `Tab` toggles between the two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
-    Sidebar,
-    Files,
+    Band,
     Diff,
+}
+
+/// What the top band shows: one topic at a time, cycled with `Shift-Tab`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BandView {
+    /// The commit list beside the selected commit's message.
+    Commits,
+    /// The changed-file list for the selected commit.
+    Files,
+    /// The cross-commit annotation overview.
+    Annotations,
 }
 
 /// How the diff pane lays out changed lines.
@@ -59,13 +70,6 @@ pub enum Overlay {
     None,
     Editor(Editor),
     Timeline(Timeline),
-}
-
-/// What the sidebar lists: the commit log, or the cross-commit annotation
-/// overview (issues: overview belongs in the sidebar).
-pub enum SidebarView {
-    Commits,
-    Annotations { cursor: usize },
 }
 
 /// The annotation editor (PRD §11 annotation editor), used both to create a new
@@ -188,8 +192,17 @@ pub struct App {
     revisions: Vec<Revision>,
     pub listing_source: ListingSource,
     pub commit_cursor: usize,
-    /// Cursor into the changed-file panel beneath the commit list.
+    /// First visible row of the commit list column (scrolls to keep the cursor
+    /// in view within the bounded band).
+    pub commit_top: usize,
+    /// Cursor into the changed-file list.
     pub file_cursor: usize,
+    /// First visible row of the file list.
+    pub file_top: usize,
+    /// Cursor into the annotation overview.
+    pub annotation_cursor: usize,
+    /// First visible row of the annotation overview.
+    pub annotation_top: usize,
 
     diff: Option<CommitDiff>,
     pub rows: Vec<Row>,
@@ -206,16 +219,16 @@ pub struct App {
     commit_markers: HashMap<RevisionId, Marker>,
     line_markers: HashMap<(usize, Side, u32), LineMarker>,
 
-    /// Full message of the selected commit, shown when the sidebar is focused.
+    /// Full message of the selected commit, shown in the band's message column.
     pub current_message: String,
-    /// First visible line of the commit message footer.
+    /// First visible line of the message column (scrolled with ctrl-u/d).
     pub message_scroll: usize,
     /// Height of the diff viewport, recorded each frame for half-page paging.
     pub diff_viewport_height: usize,
 
     pub focus: Focus,
     pub view: DiffView,
-    pub sidebar: SidebarView,
+    pub band: BandView,
     pub overlay: Overlay,
     pub theme_mode: ThemeMode,
     pub palette: Palette,
@@ -241,7 +254,11 @@ impl App {
             revisions: listing.revisions,
             listing_source: listing.source,
             commit_cursor: 0,
+            commit_top: 0,
             file_cursor: 0,
+            file_top: 0,
+            annotation_cursor: 0,
+            annotation_top: 0,
             diff: None,
             rows: Vec::new(),
             diff_cursor: 0,
@@ -255,9 +272,9 @@ impl App {
             current_message: String::new(),
             message_scroll: 0,
             diff_viewport_height: 0,
-            focus: Focus::Sidebar,
+            focus: Focus::Band,
             view: DiffView::Unified,
-            sidebar: SidebarView::Commits,
+            band: BandView::Commits,
             overlay: Overlay::None,
             theme_mode,
             palette: Palette::for_mode(theme_mode),
@@ -419,7 +436,10 @@ impl App {
             Action::Space => self.start_selection(),
             Action::StartSelection => self.start_selection(),
             Action::Annotate => self.begin_annotation(),
-            Action::ToggleOverview => self.toggle_overview(),
+            Action::ViewCommits => self.show_view(BandView::Commits),
+            Action::ViewFiles => self.show_view(BandView::Files),
+            Action::ViewAnnotations => self.show_view(BandView::Annotations),
+            Action::CycleView => self.cycle_view(),
             Action::Timeline => self.open_timeline(),
             Action::Reopen => self.reopen(),
             Action::Edit => self.begin_edit(),
@@ -439,8 +459,7 @@ impl App {
             Overlay::Timeline(timeline) => timeline.scroll = timeline.scroll.saturating_sub(1),
             Overlay::Editor(_) => {}
             Overlay::None => match self.focus {
-                Focus::Sidebar => self.move_sidebar(Direction::Up),
-                Focus::Files => self.move_files(Direction::Up),
+                Focus::Band => self.move_band(Direction::Up),
                 Focus::Diff => self.set_diff_cursor(self.diff_cursor.saturating_sub(1)),
             },
         }
@@ -451,32 +470,36 @@ impl App {
             Overlay::Timeline(timeline) => timeline.scroll += 1,
             Overlay::Editor(_) => {}
             Overlay::None => match self.focus {
-                Focus::Sidebar => self.move_sidebar(Direction::Down),
-                Focus::Files => self.move_files(Direction::Down),
+                Focus::Band => self.move_band(Direction::Down),
                 Focus::Diff => self.set_diff_cursor(self.diff_cursor + 1),
             },
         }
     }
 
-    /// Move the sidebar cursor: through commits, or through the annotation
-    /// overview when that view is active.
-    fn move_sidebar(&mut self, direction: Direction) {
-        match &self.sidebar {
-            SidebarView::Commits => {
-                let max = self.revisions.len().saturating_sub(1);
-                self.commit_cursor = step_index(self.commit_cursor, direction, max);
-                self.load_selected_commit();
-            }
-            SidebarView::Annotations { cursor } => {
-                let max = self.overview_annotations().len().saturating_sub(1);
-                let next = step_index(*cursor, direction, max);
-                self.sidebar = SidebarView::Annotations { cursor: next };
-                self.reveal_annotation();
-            }
+    /// Move the cursor within the band's active view.
+    fn move_band(&mut self, direction: Direction) {
+        match self.band {
+            BandView::Commits => self.move_commits(direction),
+            BandView::Files => self.move_files(direction),
+            BandView::Annotations => self.move_annotations(direction),
         }
     }
 
-    /// Move the file-panel cursor and reveal that file in the diff.
+    /// Move the commit-list cursor and load the newly selected commit.
+    fn move_commits(&mut self, direction: Direction) {
+        let max = self.revisions.len().saturating_sub(1);
+        self.commit_cursor = step_index(self.commit_cursor, direction, max);
+        self.load_selected_commit();
+    }
+
+    /// Move the overview cursor and reveal that annotation in the diff.
+    fn move_annotations(&mut self, direction: Direction) {
+        let max = self.overview_annotations().len().saturating_sub(1);
+        self.annotation_cursor = step_index(self.annotation_cursor, direction, max);
+        self.reveal_annotation();
+    }
+
+    /// Move the file-list cursor and reveal that file in the diff.
     fn move_files(&mut self, direction: Direction) {
         let max = self.changed_files().len().saturating_sub(1);
         self.file_cursor = step_index(self.file_cursor, direction, max);
@@ -512,14 +535,18 @@ impl App {
     }
 
     /// Half-viewport paging: the diff cursor when the diff is focused, or the
-    /// commit-message footer when the sidebar is. No-op while an overlay is open.
+    /// message column otherwise. No-op while an overlay is open.
     fn move_page(&mut self, direction: Direction) {
         if !matches!(self.overlay, Overlay::None) {
             return;
         }
 
         match self.focus {
-            Focus::Sidebar | Focus::Files => self.scroll_message(direction),
+            Focus::Band => {
+                if matches!(self.band, BandView::Commits) {
+                    self.scroll_message(direction);
+                }
+            }
             Focus::Diff => {
                 let step = (self.diff_viewport_height / 2).max(1);
 
@@ -531,7 +558,7 @@ impl App {
         }
     }
 
-    /// Scroll the commit-message footer, clamped to its content.
+    /// Scroll the message column, clamped to its content.
     fn scroll_message(&mut self, direction: Direction) {
         let max_scroll = self
             .current_message
@@ -600,10 +627,10 @@ impl App {
             return;
         }
 
-        match (self.focus, &self.sidebar) {
-            (Focus::Sidebar, SidebarView::Annotations { .. }) => self.jump_to_annotation(),
-            (Focus::Sidebar, SidebarView::Commits) => self.select_commit(),
-            (Focus::Files, _) => self.jump_to_file(),
+        match (self.focus, self.band) {
+            (Focus::Band, BandView::Commits) => self.select_commit(),
+            (Focus::Band, BandView::Files) => self.jump_to_file(),
+            (Focus::Band, BandView::Annotations) => self.jump_to_annotation(),
             (Focus::Diff, _) => self.begin_annotation(),
         }
     }
@@ -653,21 +680,12 @@ impl App {
         self.focus = Focus::Diff;
     }
 
-    /// Cycle focus Sidebar → Diff → Files → Sidebar. The file panel is skipped
-    /// when the sidebar shows the annotation overview or the commit has no
-    /// changed files, since the panel is not drawn then.
+    /// Toggle focus between the top band and the diff.
     fn toggle_focus(&mut self) {
         if matches!(self.overlay, Overlay::None) {
             self.focus = match self.focus {
-                Focus::Sidebar => Focus::Diff,
-                Focus::Diff
-                    if matches!(self.sidebar, SidebarView::Commits)
-                        && !self.changed_files().is_empty() =>
-                {
-                    Focus::Files
-                }
-                Focus::Diff => Focus::Sidebar,
-                Focus::Files => Focus::Sidebar,
+                Focus::Band => Focus::Diff,
+                Focus::Diff => Focus::Band,
             };
         }
     }
@@ -695,25 +713,39 @@ impl App {
         }
     }
 
-    /// Toggle the sidebar between the commit log and the annotation overview,
-    /// focusing the sidebar so it can be navigated.
-    fn toggle_overview(&mut self) {
-        self.sidebar = match self.sidebar {
-            SidebarView::Commits => SidebarView::Annotations { cursor: 0 },
-            SidebarView::Annotations { .. } => SidebarView::Commits,
-        };
-        self.focus = Focus::Sidebar;
-
-        if matches!(self.sidebar, SidebarView::Annotations { .. }) {
-            self.reveal_annotation();
+    /// Switch the band to `view` and focus it so it can be navigated. Selecting
+    /// the files or annotations view reveals the current selection in the diff.
+    fn show_view(&mut self, view: BandView) {
+        if !matches!(self.overlay, Overlay::None) {
+            return;
         }
+
+        self.band = view;
+        self.focus = Focus::Band;
+
+        match view {
+            BandView::Files => self.reveal_file(),
+            BandView::Annotations => self.reveal_annotation(),
+            BandView::Commits => {}
+        }
+    }
+
+    /// Cycle the band to the next view (commits → files → annotations → …).
+    fn cycle_view(&mut self) {
+        let next = match self.band {
+            BandView::Commits => BandView::Files,
+            BandView::Files => BandView::Annotations,
+            BandView::Annotations => BandView::Commits,
+        };
+
+        self.show_view(next);
     }
 
     fn cancel(&mut self) {
         match self.overlay {
             Overlay::None => {
                 if self.selection_anchor.take().is_none() {
-                    self.focus = Focus::Sidebar;
+                    self.focus = Focus::Band;
                 }
             }
             _ => self.overlay = Overlay::None,
@@ -769,8 +801,8 @@ impl App {
     /// Edit the focused annotation's body/type. From the sidebar overview this
     /// first jumps to the annotation so the inline editor lands on its line.
     fn begin_edit(&mut self) {
-        let from_overview = matches!(self.focus, Focus::Sidebar)
-            && matches!(self.sidebar, SidebarView::Annotations { .. });
+        let from_overview =
+            matches!(self.focus, Focus::Band) && matches!(self.band, BandView::Annotations);
 
         if from_overview {
             self.jump_to_annotation();
@@ -889,10 +921,11 @@ impl App {
                 .find(|a| a.id() == timeline.annotation_id);
         }
 
-        match &self.sidebar {
-            SidebarView::Annotations { cursor } if matches!(self.focus, Focus::Sidebar) => {
-                self.overview_annotations().into_iter().nth(*cursor)
-            }
+        match self.band {
+            BandView::Annotations if matches!(self.focus, Focus::Band) => self
+                .overview_annotations()
+                .into_iter()
+                .nth(self.annotation_cursor),
             _ => self.annotation_at_cursor(),
         }
     }
@@ -1082,6 +1115,7 @@ impl App {
         self.diff_cursor = 0;
         self.diff_top = 0;
         self.file_cursor = 0;
+        self.file_top = 0;
         self.message_scroll = 0;
         self.selection_anchor = None;
         self.expansions.clear();
@@ -1275,6 +1309,20 @@ fn step_index(index: usize, direction: Direction, max: usize) -> usize {
     match direction {
         Direction::Up => index.saturating_sub(1),
         Direction::Down => (index + 1).min(max),
+    }
+}
+
+/// Advance or pull back the scroll `top` so `cursor` stays within a window of
+/// `height` rows starting at `top`.
+pub fn keep_in_view(top: usize, cursor: usize, height: usize) -> usize {
+    let height = height.max(1);
+
+    if cursor < top {
+        cursor
+    } else if cursor >= top + height {
+        cursor + 1 - height
+    } else {
+        top
     }
 }
 
@@ -1506,6 +1554,18 @@ fn gap_context(prev: &Hunk, next: &Hunk, file_lines: Option<&Vec<String>>) -> Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keep_in_view_tracks_the_cursor_within_a_window() {
+        // Cursor already visible: top stays put.
+        assert_eq!(keep_in_view(0, 3, 5), 0);
+        // Cursor below the window: top advances so the cursor sits at the bottom.
+        assert_eq!(keep_in_view(0, 7, 5), 3);
+        // Cursor above the window: top pulls back to the cursor.
+        assert_eq!(keep_in_view(4, 1, 5), 1);
+        // A zero height is treated as one row.
+        assert_eq!(keep_in_view(0, 2, 0), 2);
+    }
 
     #[test]
     fn span_position_brackets_a_multiline_range() {

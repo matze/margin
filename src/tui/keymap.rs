@@ -29,7 +29,12 @@ pub enum Action {
     Confirm,
     /// Context action of Space: toggle a visual selection in the diff.
     Space,
-    ToggleOverview,
+    /// Cycle the top band through its views (commits → files → annotations).
+    CycleView,
+    /// Show a specific band view directly.
+    ViewCommits,
+    ViewFiles,
+    ViewAnnotations,
     Timeline,
     Reopen,
     Edit,
@@ -91,6 +96,7 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('+') | KeyCode::Char('=') => Some(Action::ExpandContext),
         KeyCode::Char('-') | KeyCode::Char('_') => Some(Action::CollapseContext),
         KeyCode::Tab => Some(Action::FocusToggle),
+        KeyCode::BackTab => Some(Action::CycleView),
         KeyCode::Char('s') => Some(Action::ToggleSplit),
         KeyCode::Char('l') | KeyCode::Right => Some(Action::SelectCommit),
         KeyCode::Enter => Some(Action::Confirm),
@@ -98,7 +104,6 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('h') | KeyCode::Left | KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Char('v') => Some(Action::StartSelection),
         KeyCode::Char('a') => Some(Action::Annotate),
-        KeyCode::Char('g') => Some(Action::ToggleOverview),
         KeyCode::Char('t') => Some(Action::Timeline),
         KeyCode::Char('r') => Some(Action::Reopen),
         KeyCode::Char('e') => Some(Action::Edit),

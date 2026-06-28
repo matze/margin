@@ -1,16 +1,17 @@
 //! Rendering: a pure function of [`App`] state plus the [`Highlighter`].
 //!
 //! Panes are borderless (PRD §11 / issues: less chrome): each carries a single
-//! header bar, a one-column divider separates the sidebar from the diff, and the
-//! focused pane is marked by a reversed header. Syntax foreground is layered over
-//! diff-semantic backgrounds (PRD §11.1); foreground accents use ANSI named
-//! colors so they track the terminal theme.
+//! header bar, the top band shows one view at a time (commits, files, or
+//! annotations) with a horizontal rule separating it from the diff, and the
+//! focused pane is marked by a reversed header. Syntax foreground is layered over diff-semantic
+//! backgrounds (PRD §11.1); foreground accents use ANSI named colors so they
+//! track the terminal theme.
 
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
-use ratatui::Frame;
 
 use crate::export::{status_label, type_label};
 use crate::model::{Event, EventKind, Side};
@@ -18,8 +19,8 @@ use crate::review::{ResolvedAnnotation, RevisionState};
 use crate::vcs::{ChangeKind, DiffLine, DiffLineKind, ListingSource};
 
 use super::app::{
-    App, DiffView, EditorMode, Focus, LineMarker, Marker, Overlay, Row, SidebarView, SpanPosition,
-    COMMIT_MESSAGE_VIEWPORT,
+    App, BandView, DiffView, EditorMode, Focus, LineMarker, Marker, Overlay, Row, SpanPosition,
+    keep_in_view,
 };
 use super::highlight::Highlighter;
 use super::theme::Palette;
@@ -36,39 +37,26 @@ const CONTENT_INDENT: usize = 13;
 /// gutter (5) + the +/- sign (1). Each cell shows only its own side's number.
 const SPLIT_CONTENT_INDENT: usize = 8;
 
-/// Width of the sidebar column; the vertical divider sits just past it.
-const SIDEBAR_WIDTH: u16 = 32;
+/// Maximum band height including its header row; see [`band_height`] for how the
+/// band shrinks to its content below this.
+const BAND_HEIGHT: u16 = 12;
 
 /// Render the whole screen.
 pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
     let area = frame.area();
-    let footer_height = footer_height(app);
-    let message_divider = u16::from(footer_height > 0);
+    let band = band_height(app, area.height);
 
     let rows = Layout::vertical([
+        Constraint::Length(band),
+        Constraint::Length(1),
         Constraint::Min(0),
-        Constraint::Length(message_divider),
-        Constraint::Length(footer_height),
         Constraint::Length(1),
     ])
     .split(area);
 
-    let columns = Layout::horizontal([
-        Constraint::Length(SIDEBAR_WIDTH),
-        Constraint::Length(1),
-        Constraint::Min(0),
-    ])
-    .split(rows[0]);
-
-    render_sidebar(frame, app, columns[0]);
-    render_divider(frame, columns[1], app.palette);
-    render_diff(frame, app, highlighter, columns[2]);
-
-    if message_divider == 1 {
-        render_message_divider(frame, app, rows[1]);
-    }
-
-    render_footer(frame, app, rows[2]);
+    render_band(frame, app, rows[0]);
+    render_band_divider(frame, app, rows[1]);
+    render_diff(frame, app, highlighter, rows[2]);
     render_help(frame, app, rows[3]);
 
     match &app.overlay {
@@ -79,57 +67,137 @@ pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
     }
 }
 
-/// Footer height: the commit message when browsing the sidebar; nothing in the
-/// diff, where annotations are shown inline beneath their anchor line.
-fn footer_height(app: &App) -> u16 {
-    match app.focus {
-        Focus::Sidebar | Focus::Files => app
-            .current_message
-            .lines()
-            .count()
-            .clamp(1, COMMIT_MESSAGE_VIEWPORT) as u16,
-        Focus::Diff => 0,
+/// The band height: one header row plus the active view's content, so the band
+/// only takes the space it needs and the diff gets the rest. Capped at
+/// [`BAND_HEIGHT`] and never more than half the screen.
+fn band_height(app: &App, total: u16) -> u16 {
+    let rows = match app.band {
+        BandView::Commits => app
+            .revisions()
+            .len()
+            .max(app.current_message.lines().count()),
+        BandView::Files => app.changed_files().len().max(1),
+        BandView::Annotations => app.overview_annotations().len().max(1),
+    };
+
+    ((rows + 1) as u16)
+        .clamp(2, BAND_HEIGHT)
+        .min(total / 2)
+        .max(2)
+}
+
+/// The commits view's two columns and the divider between them, as one layout so
+/// the band body and its bottom rule stay column-aligned. The commit list and the
+/// message column split the band evenly.
+fn commit_columns(area: Rect) -> std::rc::Rc<[Rect]> {
+    Layout::horizontal([
+        Constraint::Percentage(50),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .split(area)
+}
+
+/// The top band, showing one view at a time: the commit list beside the selected
+/// commit's message, the changed-file list, or the annotation overview. Each
+/// scrolls to keep its cursor in view.
+fn render_band(frame: &mut Frame, app: &mut App, area: Rect) {
+    let body_height = area.height.saturating_sub(1) as usize;
+    let focused = matches!(app.focus, Focus::Band);
+
+    match app.band {
+        BandView::Commits => render_commit_band(frame, app, area, body_height, focused),
+        BandView::Files => {
+            app.file_top = keep_in_view(app.file_top, app.file_cursor, body_height);
+            render_list_pane(
+                frame,
+                area,
+                &format!("files · {}", app.changed_files().len()),
+                file_list_lines(app, Color::Reset),
+                focused,
+                app.palette,
+                app.file_top as u16,
+            );
+        }
+        BandView::Annotations => {
+            app.annotation_top =
+                keep_in_view(app.annotation_top, app.annotation_cursor, body_height);
+            render_list_pane(
+                frame,
+                area,
+                &format!("annotations · {}", app.overview_annotations().len()),
+                annotation_list_lines(app, app.annotation_cursor, Color::Reset),
+                focused,
+                app.palette,
+                app.annotation_top as u16,
+            );
+        }
     }
 }
 
-fn render_sidebar(frame: &mut Frame, app: &App, area: Rect) {
-    match &app.sidebar {
-        SidebarView::Commits => {
-            let files_height = ((app.changed_files().len() + 1) as u16).clamp(2, area.height / 2);
-            let [top, bottom] =
-                Layout::vertical([Constraint::Min(0), Constraint::Length(files_height)])
-                    .areas(area);
+/// The commits view: the commit list and the selected commit's message under one
+/// shared heading. The message is the selected commit's detail, not a pane of its
+/// own, so it carries no separate label.
+fn render_commit_band(
+    frame: &mut Frame,
+    app: &mut App,
+    area: Rect,
+    body_height: usize,
+    focused: bool,
+) {
+    let columns = commit_columns(area);
 
-            render_list_pane(
-                frame,
-                top,
-                &commit_list_title(app),
-                commit_list_lines(app, Color::Reset),
-                matches!(app.focus, Focus::Sidebar),
-                app.palette,
-            );
-            render_list_pane(
-                frame,
-                bottom,
-                &format!("files · {}", app.changed_files().len()),
-                file_list_lines(app, Color::Reset),
-                matches!(app.focus, Focus::Files),
-                app.palette,
-            );
-        }
-        SidebarView::Annotations { cursor } => render_list_pane(
-            frame,
-            area,
-            &format!("annotations · {}", app.overview_annotations().len()),
-            annotation_list_lines(app, *cursor, Color::Reset),
-            matches!(app.focus, Focus::Sidebar),
-            app.palette,
-        ),
+    let detail = union(columns[0], columns[2]);
+    let [heading, _] = pane_split(detail);
+    render_header(
+        frame,
+        heading,
+        &commit_list_title(app),
+        focused,
+        app.palette,
+    );
+
+    app.commit_top = keep_in_view(app.commit_top, app.commit_cursor, body_height);
+    render_list_body(
+        frame,
+        body_of(columns[0]),
+        commit_list_lines(app, Color::Reset),
+        app.commit_top as u16,
+    );
+    render_message_body(frame, app, body_of(columns[2]));
+
+    // The divider runs only below the shared heading, which spans both columns.
+    render_divider(frame, body_of(columns[1]), app.palette);
+}
+
+/// The smallest rect covering two horizontally adjacent columns.
+fn union(left: Rect, right: Rect) -> Rect {
+    Rect {
+        x: left.x,
+        y: left.y,
+        width: right.x + right.width - left.x,
+        height: left.height,
     }
+}
+
+/// The body of a band column: everything below its one-row header.
+fn body_of(area: Rect) -> Rect {
+    pane_split(area)[1]
+}
+
+/// The selected commit's message, scrolled with ctrl-u/d.
+fn render_message_body(frame: &mut Frame, app: &App, area: Rect) {
+    frame.render_widget(
+        Paragraph::new(commit_message_lines(app))
+            .scroll((app.message_scroll as u16, 0))
+            .wrap(Wrap { trim: false })
+            .style(Style::default().bg(Color::Reset)),
+        area,
+    );
 }
 
 /// Render a titled list pane: a one-line header (reversed when focused) above a
-/// body of pre-built lines.
+/// scrolled body.
 fn render_list_pane(
     frame: &mut Frame,
     area: Rect,
@@ -137,14 +205,21 @@ fn render_list_pane(
     lines: Vec<Line<'static>>,
     focused: bool,
     palette: Palette,
+    scroll: u16,
 ) {
     let [header, body] = pane_split(area);
-    let pane_bg = Color::Reset;
 
     render_header(frame, header, title, focused, palette);
+    render_list_body(frame, body, lines, scroll);
+}
+
+/// Render pre-built list lines into `area`, scrolled by `scroll` rows.
+fn render_list_body(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>, scroll: u16) {
     frame.render_widget(
-        Paragraph::new(lines).style(Style::default().bg(pane_bg)),
-        body,
+        Paragraph::new(lines)
+            .style(Style::default().bg(Color::Reset))
+            .scroll((scroll, 0)),
+        area,
     );
 }
 
@@ -384,17 +459,9 @@ fn screen_index_of(screen: &[ScreenRow], row: usize) -> usize {
 
 fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area: Rect) {
     let focused = matches!(app.focus, Focus::Diff);
-    let [header, body] = pane_split(area);
-
-    let title = match app.current_revision() {
-        Some(revision) => {
-            let short: String = revision.id.0.chars().take(7).collect();
-            let merge = if revision.is_merge { " (merge)" } else { "" };
-            format!("{short}{merge}  {}", revision.summary)
-        }
-        None => "no commit selected".to_string(),
-    };
-    render_header(frame, header, &title, focused, app.palette);
+    // No header: the selected commit is identified in the band, so the diff uses
+    // its whole area as the scrollable body.
+    let body = area;
 
     let height = body.height as usize;
     app.diff_viewport_height = height;
@@ -1253,27 +1320,15 @@ fn padded_row(spans: Vec<Span<'static>>, width: usize, bg: Color) -> Line<'stati
     Line::from(spans)
 }
 
-fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
-    if area.height == 0 {
-        return;
-    }
-
-    // Only the sidebar uses the footer, to show the selected commit's message
-    // (scrollable with ctrl-u/d); the diff shows annotations inline instead.
-    frame.render_widget(
-        Paragraph::new(commit_message_lines(app))
-            .scroll((app.message_scroll as u16, 0))
-            .wrap(Wrap { trim: false }),
-        area,
-    );
-}
-
-/// A horizontal rule separating the diff/sidebar from the commit message, with a
-/// `┴` where it meets the bottom of the vertical sidebar divider.
-fn render_message_divider(frame: &mut Frame, app: &App, area: Rect) {
+/// The horizontal rule separating the band from the diff, with a `┴` where the
+/// commits view's column divider meets it from above (the files and annotations
+/// views are single columns, so their rule is unbroken).
+fn render_band_divider(frame: &mut Frame, app: &App, area: Rect) {
     let mut rule: Vec<char> = "─".repeat(area.width as usize).chars().collect();
 
-    if let Some(cell) = rule.get_mut(SIDEBAR_WIDTH as usize) {
+    if matches!(app.band, BandView::Commits)
+        && let Some(cell) = rule.get_mut((commit_columns(area)[1].x - area.x) as usize)
+    {
         *cell = '┴';
     }
 
@@ -1326,7 +1381,7 @@ fn render_help(frame: &mut Frame, app: &App, area: Rect) {
 /// The key-hint line for the current context. Only keys that act in that context
 /// are shown (diff navigation does not appear while browsing commits).
 fn help_line(app: &App) -> Line<'static> {
-    let hints: &[(&str, &str)] = match (&app.overlay, app.focus, &app.sidebar) {
+    let hints: &[(&str, &str)] = match (&app.overlay, app.focus, app.band) {
         (Overlay::Editor(_), ..) => &[
             ("type", "body"),
             ("ctrl-t", "type"),
@@ -1340,30 +1395,31 @@ fn help_line(app: &App) -> Line<'static> {
             ("d", "delete"),
             ("esc", "back"),
         ],
-        (Overlay::None, Focus::Sidebar, SidebarView::Annotations { .. }) => &[
+        (Overlay::None, Focus::Diff, _) => return diff_help_line(app),
+        (Overlay::None, Focus::Band, BandView::Commits) => &[
+            ("j/k ↑↓", "commits"),
+            ("enter", "open"),
+            ("ctrl-u/d", "scroll msg"),
+            ("tab", "diff"),
+            ("⇧tab", "view"),
+            ("q", "quit"),
+        ],
+        (Overlay::None, Focus::Band, BandView::Files) => &[
+            ("j/k ↑↓", "files"),
+            ("enter", "open"),
+            ("tab", "diff"),
+            ("⇧tab", "view"),
+            ("q", "quit"),
+        ],
+        (Overlay::None, Focus::Band, BandView::Annotations) => &[
             ("j/k ↑↓", "move"),
             ("enter", "jump"),
             ("t", "timeline"),
             ("e", "edit"),
             ("d", "delete"),
-            ("g", "commits"),
-        ],
-        (Overlay::None, Focus::Sidebar, SidebarView::Commits) => &[
-            ("j/k ↑↓", "commits"),
-            ("enter", "open"),
-            ("ctrl-u/d", "scroll msg"),
-            ("tab", "files"),
-            ("g", "overview"),
-            ("q", "quit"),
-        ],
-        (Overlay::None, Focus::Files, _) => &[
-            ("j/k ↑↓", "files"),
-            ("enter", "open"),
             ("tab", "diff"),
-            ("esc", "commits"),
-            ("q", "quit"),
+            ("⇧tab", "view"),
         ],
-        (Overlay::None, Focus::Diff, _) => return diff_help_line(app),
     };
 
     Line::from(hint_spans(app, hints, None))
@@ -1396,8 +1452,8 @@ fn diff_help_line(app: &App) -> Line<'static> {
     hints.extend([
         ("u", "undo"),
         ("t", "timeline"),
-        ("tab", "focus"),
-        ("g", "overview"),
+        ("tab", "band"),
+        ("⇧tab", "view"),
         ("q", "quit"),
     ]);
 

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Reworked the interface: the left sidebar is replaced by a top band that shows
+  one view at a time — commits (list beside the selected commit's message),
+  files, or annotations. `Shift-Tab` cycles the band view; `Tab` toggles focus
+  between the band and the diff.
+
 ## [0.3.0]
 
 ### Added
