@@ -36,6 +36,16 @@ pub enum Focus {
     Diff,
 }
 
+/// How the diff pane lays out changed lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffView {
+    /// One full-width row per diff line, old and new line numbers together.
+    Unified,
+    /// Old text on the left, new text on the right, removed lines paired beside
+    /// their corresponding added lines.
+    Split,
+}
+
 /// Direction of a cursor movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Direction {
@@ -201,6 +211,7 @@ pub struct App {
     pub diff_viewport_height: usize,
 
     pub focus: Focus,
+    pub view: DiffView,
     pub sidebar: SidebarView,
     pub overlay: Overlay,
     pub theme_mode: ThemeMode,
@@ -241,6 +252,7 @@ impl App {
             message_scroll: 0,
             diff_viewport_height: 0,
             focus: Focus::Sidebar,
+            view: DiffView::Unified,
             sidebar: SidebarView::Commits,
             overlay: Overlay::None,
             theme_mode,
@@ -380,6 +392,7 @@ impl App {
             Action::ExpandContext => self.expand_context(Direction::Down),
             Action::CollapseContext => self.expand_context(Direction::Up),
             Action::FocusToggle => self.toggle_focus(),
+            Action::ToggleSplit => self.toggle_view(),
             Action::SelectCommit => self.select_commit(),
             Action::Confirm => self.confirm(),
             Action::Space => self.start_selection(),
@@ -592,6 +605,15 @@ impl App {
                 Focus::Diff => Focus::Sidebar,
             };
         }
+    }
+
+    /// Switch the diff pane between unified and split layouts. Rows are
+    /// view-independent, so only the rendering changes.
+    fn toggle_view(&mut self) {
+        self.view = match self.view {
+            DiffView::Unified => DiffView::Split,
+            DiffView::Split => DiffView::Unified,
+        };
     }
 
     fn select_commit(&mut self) {

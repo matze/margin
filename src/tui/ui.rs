@@ -18,7 +18,7 @@ use crate::review::ResolvedAnnotation;
 use crate::vcs::{ChangeKind, DiffLine, DiffLineKind, ListingSource};
 
 use super::app::{
-    App, EditorMode, Focus, LineMarker, Marker, Overlay, Row, SidebarView, SpanPosition,
+    App, DiffView, EditorMode, Focus, LineMarker, Marker, Overlay, Row, SidebarView, SpanPosition,
     COMMIT_MESSAGE_VIEWPORT,
 };
 use super::highlight::Highlighter;
@@ -31,6 +31,10 @@ const HIGHLIGHT_ROW_CAP: usize = 5000;
 /// gutters (10) + the +/- sign (1). Inline annotation text is indented to this
 /// so it lines up with the code it annotates.
 const CONTENT_INDENT: usize = 13;
+
+/// Columns before a split-view cell's content: the marker (2) + one line-number
+/// gutter (5) + the +/- sign (1). Each cell shows only its own side's number.
+const SPLIT_CONTENT_INDENT: usize = 8;
 
 /// Width of the sidebar column; the vertical divider sits just past it.
 const SIDEBAR_WIDTH: u16 = 32;
@@ -200,6 +204,107 @@ fn annotation_list_lines(app: &App, cursor: usize, pane_bg: Color) -> Vec<Line<'
         .collect()
 }
 
+/// One on-screen line of the diff pane. In unified view every entry is `Full`;
+/// in split view, paired diff lines become `Split` cells that hold the row
+/// indices (into `app.rows`) drawn on the left (old) and right (new) sides.
+enum ScreenRow {
+    Full(usize),
+    Split {
+        left: Option<usize>,
+        right: Option<usize>,
+    },
+}
+
+impl ScreenRow {
+    /// The `app.rows` indices this screen row draws, for cursor/selection tests
+    /// and attachment lookup.
+    fn covers(&self, row: usize) -> bool {
+        match self {
+            ScreenRow::Full(index) => *index == row,
+            ScreenRow::Split { left, right } => *left == Some(row) || *right == Some(row),
+        }
+    }
+
+    /// A representative row index, used to anchor scrolling back to `app.rows`.
+    fn anchor_row(&self) -> usize {
+        match self {
+            ScreenRow::Full(index) => *index,
+            ScreenRow::Split { left, right } => left.or(*right).unwrap_or(0),
+        }
+    }
+}
+
+/// Lay out `app.rows` into on-screen rows for the active view. Unified maps each
+/// row to its own line (identical to the row order); split pairs each run of
+/// removed lines with the following run of added lines, drawing context lines in
+/// both cells.
+fn screen_rows(app: &App) -> Vec<ScreenRow> {
+    if matches!(app.view, DiffView::Unified) {
+        return (0..app.rows.len()).map(ScreenRow::Full).collect();
+    }
+
+    let mut screen = Vec::new();
+    let mut index = 0;
+
+    while index < app.rows.len() {
+        match &app.rows[index] {
+            Row::Line { line, .. } if matches!(line.kind, DiffLineKind::Removed) => {
+                let removed: Vec<usize> = run(app, index, DiffLineKind::Removed);
+                let added: Vec<usize> = run(app, index + removed.len(), DiffLineKind::Added);
+
+                for pair in 0..removed.len().max(added.len()) {
+                    screen.push(ScreenRow::Split {
+                        left: removed.get(pair).copied(),
+                        right: added.get(pair).copied(),
+                    });
+                }
+
+                index += removed.len() + added.len();
+            }
+            Row::Line { line, .. } if matches!(line.kind, DiffLineKind::Added) => {
+                let added = run(app, index, DiffLineKind::Added);
+
+                for &row in &added {
+                    screen.push(ScreenRow::Split {
+                        left: None,
+                        right: Some(row),
+                    });
+                }
+
+                index += added.len();
+            }
+            Row::Line { .. } => {
+                // Context: the same line shows on both sides.
+                screen.push(ScreenRow::Split {
+                    left: Some(index),
+                    right: Some(index),
+                });
+                index += 1;
+            }
+            _ => {
+                screen.push(ScreenRow::Full(index));
+                index += 1;
+            }
+        }
+    }
+
+    screen
+}
+
+/// The maximal run of `app.rows` lines of `kind` starting at `start`.
+fn run(app: &App, start: usize, kind: DiffLineKind) -> Vec<usize> {
+    (start..app.rows.len())
+        .take_while(|&index| {
+            matches!(&app.rows[index], Row::Line { line, .. } if line.kind == kind)
+        })
+        .collect()
+}
+
+/// The screen-row index that draws `row`, or 0 if none does.
+fn screen_index_of(screen: &[ScreenRow], row: usize) -> usize {
+    screen.iter().position(|sr| sr.covers(row)).unwrap_or(0)
+}
+
 fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area: Rect) {
     let focused = matches!(app.focus, Focus::Diff);
     let [header, body] = pane_split(area);
@@ -219,11 +324,12 @@ fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area
 
     let width = body.width as usize;
     let attachments = build_attachments(app, width);
+    let screen = screen_rows(app);
 
     // Keep the editor (while open) or the cursor within the viewport, counting
     // the inline attachment lines that sit between the scroll top and it.
     let anchor_row = editor_anchor_row(app).unwrap_or(app.diff_cursor);
-    adjust_diff_top(app, height, &attachments, anchor_row);
+    adjust_diff_top(app, height, &screen, &attachments, anchor_row);
 
     let highlight = app.rows.len() <= HIGHLIGHT_ROW_CAP;
     let (lo, hi) = app.selection();
@@ -243,31 +349,44 @@ fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area
         return;
     }
 
-    for index in app.diff_top..app.rows.len() {
+    let top = screen_index_of(&screen, app.diff_top);
+
+    for screen_row in &screen[top..] {
         if lines.len() >= height {
             break;
         }
 
-        let is_cursor = index == app.diff_cursor && focused;
-        let in_selection = focused && app.selecting() && (lo..=hi).contains(&index);
-        lines.push(render_row(
+        lines.push(render_screen_row(
             app,
             highlighter,
-            &app.rows[index],
+            screen_row,
             width,
             pane_bg,
-            is_cursor,
-            in_selection,
+            focused,
+            lo,
+            hi,
             highlight,
         ));
 
-        if let Some(block) = attachments.get(&index) {
-            for line in block {
-                if lines.len() >= height {
-                    break;
+        for row in covered_rows(screen_row) {
+            if let Some(block) = attachments.get(&row) {
+                for line in block {
+                    if lines.len() >= height {
+                        break;
+                    }
+                    lines.push(line.clone());
                 }
-                lines.push(line.clone());
             }
+        }
+    }
+
+    // Carry the cell divider down through the empty area below the last line so
+    // the split column reads as one unbroken rule, like the sidebar divider.
+    if matches!(app.view, DiffView::Split) {
+        let col = width.saturating_sub(1) / 2;
+
+        while lines.len() < height {
+            lines.push(divider_only(col, app.palette, pane_bg));
         }
     }
 
@@ -275,6 +394,128 @@ fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area
         Paragraph::new(lines).style(Style::default().bg(pane_bg)),
         body,
     );
+}
+
+/// A blank diff line carrying just the split cell divider at column `col`.
+fn divider_only(col: usize, palette: Palette, bg: Color) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(" ".repeat(col), Style::default().bg(bg)),
+        Span::styled("│", Style::default().fg(palette.gutter_fg).bg(bg)),
+    ])
+}
+
+/// Replace the character at column `col` of `line` with the split cell divider,
+/// keeping the rest (and the line's width) intact, so full-width rows — file and
+/// hunk headers — don't break the vertical divider.
+fn overlay_divider(line: Line<'static>, col: usize, palette: Palette) -> Line<'static> {
+    let mut spans = Vec::with_capacity(line.spans.len() + 2);
+    let mut pos = 0;
+
+    for span in line.spans {
+        let len = span.content.chars().count();
+
+        if pos + len <= col || pos > col {
+            spans.push(span);
+        } else {
+            let rel = col - pos;
+            let chars: Vec<char> = span.content.chars().collect();
+            let before: String = chars[..rel].iter().collect();
+            let after: String = chars[rel + 1..].iter().collect();
+
+            if !before.is_empty() {
+                spans.push(Span::styled(before, span.style));
+            }
+
+            spans.push(Span::styled("│", span.style.fg(palette.gutter_fg)));
+
+            if !after.is_empty() {
+                spans.push(Span::styled(after, span.style));
+            }
+        }
+
+        pos += len;
+    }
+
+    Line::from(spans)
+}
+
+/// The distinct `app.rows` indices a screen row draws, for attachment lookup
+/// (deduplicated so a context line drawn in both cells isn't visited twice).
+fn covered_rows(screen_row: &ScreenRow) -> Vec<usize> {
+    match screen_row {
+        ScreenRow::Full(index) => vec![*index],
+        ScreenRow::Split { left, right } if left == right => left.iter().copied().collect(),
+        ScreenRow::Split { left, right } => left.iter().chain(right.iter()).copied().collect(),
+    }
+}
+
+/// Render one on-screen row: a full-width row in unified view (or a file/hunk
+/// header in split), or a paired split line.
+#[allow(clippy::too_many_arguments)]
+fn render_screen_row(
+    app: &App,
+    highlighter: &Highlighter,
+    screen_row: &ScreenRow,
+    width: usize,
+    pane_bg: Color,
+    focused: bool,
+    lo: usize,
+    hi: usize,
+    highlight: bool,
+) -> Line<'static> {
+    match screen_row {
+        ScreenRow::Full(index) => {
+            let is_cursor = *index == app.diff_cursor && focused;
+            let in_selection = focused && app.selecting() && (lo..=hi).contains(index);
+            let line = render_row(
+                app,
+                highlighter,
+                &app.rows[*index],
+                width,
+                pane_bg,
+                is_cursor,
+                in_selection,
+                highlight,
+            );
+
+            match app.view {
+                DiffView::Split => overlay_divider(line, width.saturating_sub(1) / 2, app.palette),
+                DiffView::Unified => line,
+            }
+        }
+        ScreenRow::Split { left, right } => {
+            let cell_width = width.saturating_sub(1) / 2;
+            let mut spans = render_cell(
+                app,
+                highlighter,
+                *left,
+                Side::Old,
+                cell_width,
+                pane_bg,
+                focused,
+                lo,
+                hi,
+                highlight,
+            );
+            spans.push(Span::styled(
+                "│",
+                Style::default().fg(app.palette.gutter_fg).bg(pane_bg),
+            ));
+            spans.extend(render_cell(
+                app,
+                highlighter,
+                *right,
+                Side::New,
+                width.saturating_sub(cell_width + 1),
+                pane_bg,
+                focused,
+                lo,
+                hi,
+                highlight,
+            ));
+            Line::from(spans)
+        }
+    }
 }
 
 /// The diff row the open editor is attached to, if any (used as the scroll
@@ -310,28 +551,49 @@ fn row_of_line(app: &App, file_index: usize, side: Side, line_no: u32) -> Option
     })
 }
 
-/// Advance the scroll top so `anchor_row` and everything above it down from the
-/// top fits within `height`, counting inline attachment lines.
-fn adjust_diff_top(app: &mut App, height: usize, attachments: &Attachments, anchor_row: usize) {
-    if height == 0 {
+/// Advance the scroll top so the screen row holding `anchor_row` and everything
+/// above it down from the top fits within `height`, counting inline attachment
+/// lines. Works in screen-row space so split-view pairing stays aligned, then
+/// stores the result back as the `app.rows` index `app.diff_top` points at.
+fn adjust_diff_top(
+    app: &mut App,
+    height: usize,
+    screen: &[ScreenRow],
+    attachments: &Attachments,
+    anchor_row: usize,
+) {
+    if height == 0 || screen.is_empty() {
         return;
     }
 
-    if anchor_row < app.diff_top {
-        app.diff_top = anchor_row;
-    }
+    let anchor = screen_index_of(screen, anchor_row);
+    let mut top = screen_index_of(screen, app.diff_top).min(anchor);
 
-    while app.diff_top < anchor_row {
-        let used: usize = (app.diff_top..=anchor_row)
-            .map(|index| 1 + attachments.get(&index).map_or(0, Vec::len))
+    while top < anchor {
+        let used: usize = screen[top..=anchor]
+            .iter()
+            .map(|screen_row| screen_height(screen_row, attachments))
             .sum();
 
         if used <= height {
             break;
         }
 
-        app.diff_top += 1;
+        top += 1;
     }
+
+    app.diff_top = screen[top].anchor_row();
+}
+
+/// The on-screen height of a screen row: its single line plus any inline
+/// attachment lines hanging beneath the rows it draws.
+fn screen_height(screen_row: &ScreenRow, attachments: &Attachments) -> usize {
+    let extra: usize = covered_rows(screen_row)
+        .iter()
+        .map(|row| attachments.get(row).map_or(0, Vec::len))
+        .sum();
+
+    1 + extra
 }
 
 /// Inline lines to render after each diff row, keyed by row index: annotation
@@ -340,6 +602,8 @@ type Attachments = std::collections::HashMap<usize, Vec<Line<'static>>>;
 
 fn build_attachments(app: &App, width: usize) -> Attachments {
     let mut attachments: Attachments = std::collections::HashMap::new();
+
+    let (lead, indent) = block_layout(app, width);
 
     let Some(revision) = app.current_revision().map(|r| r.id.clone()) else {
         return attachments;
@@ -374,6 +638,8 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
                 resolved,
                 app.palette,
                 width,
+                &lead,
+                indent,
             ));
         }
     }
@@ -382,10 +648,27 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
         attachments
             .entry(row)
             .or_default()
-            .extend(editor_block(editor, app.palette, width));
+            .extend(editor_block(editor, app.palette, width, &lead));
     }
 
     attachments
+}
+
+/// The left lead spans and content indent for inline blocks. Unified blocks
+/// start at column 0; split blocks hang under the right (new) cell, past the
+/// left cell and divider, since annotations anchor the new side.
+fn block_layout(app: &App, width: usize) -> (Vec<Span<'static>>, usize) {
+    match app.view {
+        DiffView::Unified => (Vec::new(), CONTENT_INDENT),
+        DiffView::Split => {
+            let cell_width = width.saturating_sub(1) / 2;
+            let lead = vec![
+                Span::styled(" ".repeat(cell_width), Style::default().bg(Color::Reset)),
+                Span::styled("│", Style::default().fg(app.palette.gutter_fg)),
+            ];
+            (lead, SPLIT_CONTENT_INDENT)
+        }
+    }
 }
 
 /// A compact, read-only inline block for an annotation. Its left bar sits in the
@@ -396,6 +679,8 @@ fn annotation_block(
     resolved: &ResolvedAnnotation,
     palette: Palette,
     width: usize,
+    lead: &[Span<'static>],
+    indent: usize,
 ) -> Vec<Line<'static>> {
     let annotation = &resolved.annotation;
     let bar_color = palette.marker_open;
@@ -416,16 +701,17 @@ fn annotation_block(
             // The bracket takes 2 columns; the type tag fills the rest of the
             // gutter region so body text starts at the content column.
             let tag = if index == 0 { kind } else { "" };
-            let gutter = format!("{tag:<width$}", width = CONTENT_INDENT - 2);
+            let gutter = format!("{tag:<width$}", width = indent - 2);
 
-            let spans = vec![
+            let mut spans = lead.to_vec();
+            spans.extend([
                 bracket_span(bracket, bar_color, bg),
                 Span::styled(gutter, Style::default().fg(palette.gutter_fg).bg(bg)),
                 Span::styled(
                     text.to_string(),
                     Style::default().fg(palette.default_fg).bg(bg),
                 ),
-            ];
+            ]);
             padded_row(spans, width, bg)
         })
         .collect()
@@ -433,7 +719,12 @@ fn annotation_block(
 
 /// The inline editor block: a title line, the body with a text cursor, and a key
 /// hint, wrapped in a self-contained bracket on the annotation background.
-fn editor_block(editor: &super::app::Editor, palette: Palette, width: usize) -> Vec<Line<'static>> {
+fn editor_block(
+    editor: &super::app::Editor,
+    palette: Palette,
+    width: usize,
+    lead: &[Span<'static>],
+) -> Vec<Line<'static>> {
     let bg = palette.annotation_bg;
     let bar_color = palette.marker_open;
     let kind = editor.annotation_type.map(type_label).unwrap_or("none");
@@ -497,7 +788,8 @@ fn editor_block(editor: &super::app::Editor, palette: Palette, width: usize) -> 
                 i if i == last => '└',
                 _ => '│',
             };
-            let mut row = vec![bracket_span(bracket, bar_color, bg)];
+            let mut row = lead.to_vec();
+            row.push(bracket_span(bracket, bar_color, bg));
             row.append(&mut spans);
             padded_row(row, width, bg)
         })
@@ -707,6 +999,154 @@ fn render_diff_line(
     padded_row(spans, width, bg)
 }
 
+/// Render one side of a split diff line into exactly `width` columns: the
+/// marker, this side's line number, the +/- sign, and truncated content. An
+/// absent `row` (no paired line on this side) renders a blank cell.
+#[allow(clippy::too_many_arguments)]
+fn render_cell(
+    app: &App,
+    highlighter: &Highlighter,
+    row: Option<usize>,
+    side: Side,
+    width: usize,
+    pane_bg: Color,
+    focused: bool,
+    lo: usize,
+    hi: usize,
+    highlight: bool,
+) -> Vec<Span<'static>> {
+    let palette = app.palette;
+
+    let Some(row_index) = row else {
+        return vec![Span::styled(" ".repeat(width), Style::default().bg(pane_bg))];
+    };
+
+    let Some(Row::Line {
+        file_index,
+        extension,
+        line,
+    }) = app.rows.get(row_index)
+    else {
+        return vec![Span::styled(" ".repeat(width), Style::default().bg(pane_bg))];
+    };
+
+    let number = match side {
+        Side::Old => line.old_no,
+        Side::New => line.new_no,
+    };
+
+    let line_marker = number.and_then(|no| app.line_marker(*file_index, side, no.get()));
+
+    let base_bg = if line_marker.is_some() {
+        palette.annotated_line_bg
+    } else {
+        match line.kind {
+            DiffLineKind::Added => palette.add_bg,
+            DiffLineKind::Removed => palette.remove_bg,
+            DiffLineKind::Context => pane_bg,
+        }
+    };
+
+    let is_cursor = row_index == app.diff_cursor && focused;
+    let in_selection = focused && app.selecting() && (lo..=hi).contains(&row_index);
+
+    let bg = if is_cursor {
+        palette.cursor_bg
+    } else if in_selection {
+        palette.selection_bg
+    } else {
+        base_bg
+    };
+
+    let emphasis = if is_cursor || in_selection {
+        Modifier::BOLD
+    } else {
+        Modifier::empty()
+    };
+
+    let (sign, sign_fg) = match line.kind {
+        DiffLineKind::Added => ('+', palette.sign_add),
+        DiffLineKind::Removed => ('-', palette.sign_remove),
+        DiffLineKind::Context => (' ', palette.gutter_fg),
+    };
+
+    let mut spans = vec![
+        Span::styled(
+            format!("{} ", line_marker.map_or(' ', marker_glyph)),
+            Style::default()
+                .fg(palette.marker_open)
+                .bg(bg)
+                .add_modifier(emphasis),
+        ),
+        Span::styled(
+            format!("{:>4} ", number.map(|n| n.get().to_string()).unwrap_or_default()),
+            Style::default()
+                .fg(palette.gutter_fg)
+                .bg(bg)
+                .add_modifier(emphasis),
+        ),
+        Span::styled(
+            sign.to_string(),
+            Style::default().fg(sign_fg).bg(bg).add_modifier(emphasis),
+        ),
+    ];
+
+    if highlight {
+        spans.extend(highlighter.spans(extension, &line.content).into_iter().map(|span| {
+            Span::styled(
+                span.text,
+                Style::default()
+                    .fg(span.color)
+                    .bg(bg)
+                    .add_modifier(emphasis),
+            )
+        }));
+    } else {
+        spans.push(Span::styled(
+            line.content.clone(),
+            Style::default()
+                .fg(palette.default_fg)
+                .bg(bg)
+                .add_modifier(emphasis),
+        ));
+    }
+
+    fit_spans(spans, width, bg)
+}
+
+/// Truncate `spans` to at most `width` columns (cutting mid-span if needed), then
+/// pad the remainder with `bg` so the cell fills exactly `width`.
+fn fit_spans(spans: Vec<Span<'static>>, width: usize, bg: Color) -> Vec<Span<'static>> {
+    let mut out = Vec::with_capacity(spans.len());
+    let mut used = 0;
+
+    for span in spans {
+        if used >= width {
+            break;
+        }
+
+        let len = span.content.chars().count();
+
+        if used + len <= width {
+            used += len;
+            out.push(span);
+        } else {
+            let text: String = span.content.chars().take(width - used).collect();
+            out.push(Span::styled(text, span.style));
+            used = width;
+        }
+    }
+
+    if used < width {
+        out.push(Span::styled(
+            " ".repeat(width - used),
+            Style::default().bg(bg),
+        ));
+    }
+
+    out
+}
+
 /// Pad a row's spans to `width` so its background fills the line.
 fn padded_row(spans: Vec<Span<'static>>, width: usize, bg: Color) -> Line<'static> {
     let mut spans = spans;
@@ -833,6 +1273,10 @@ fn help_line(app: &App) -> Line<'static> {
 
 /// The diff-pane hints, with the select key emphasized while a selection is live.
 fn diff_help_line(app: &App) -> Line<'static> {
+    let view = match app.view {
+        DiffView::Unified => ("s", "split"),
+        DiffView::Split => ("s", "unified"),
+    };
     let hints: &[(&str, &str)] = &[
         ("j/k ↑↓", "move"),
         ("n/p", "change"),
@@ -843,6 +1287,7 @@ fn diff_help_line(app: &App) -> Line<'static> {
         ("d", "delete"),
         ("u", "undo"),
         ("t", "timeline"),
+        view,
         ("tab", "focus"),
         ("g", "overview"),
         ("q", "quit"),

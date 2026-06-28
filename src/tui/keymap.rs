@@ -20,6 +20,8 @@ pub enum Action {
     ExpandContext,
     CollapseContext,
     FocusToggle,
+    /// Switch the diff pane between unified and split layouts.
+    ToggleSplit,
     SelectCommit,
     StartSelection,
     Annotate,
@@ -89,6 +91,7 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('+') | KeyCode::Char('=') => Some(Action::ExpandContext),
         KeyCode::Char('-') | KeyCode::Char('_') => Some(Action::CollapseContext),
         KeyCode::Tab => Some(Action::FocusToggle),
+        KeyCode::Char('s') => Some(Action::ToggleSplit),
         KeyCode::Char('l') | KeyCode::Right => Some(Action::SelectCommit),
         KeyCode::Enter => Some(Action::Confirm),
         KeyCode::Char(' ') => Some(Action::Space),
@@ -130,6 +133,18 @@ mod tests {
         assert_eq!(
             map(press(KeyCode::Char('K')), false),
             Some(Action::PrevCommit)
+        );
+    }
+
+    #[test]
+    fn s_toggles_split_in_main_but_types_in_editor() {
+        assert_eq!(
+            map(press(KeyCode::Char('s')), false),
+            Some(Action::ToggleSplit)
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('s')), true),
+            Some(Action::EditorChar('s'))
         );
     }
 

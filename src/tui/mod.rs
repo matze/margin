@@ -680,4 +680,177 @@ mod tests {
         assert!(rendered.contains("timeline"), "{rendered}");
         assert!(rendered.contains("created"), "{rendered}");
     }
+
+    /// A repo whose feature commit modifies one line (apple -> banana) and adds
+    /// a brand-new line, so the diff has a paired change and a pure addition.
+    fn modification_fixture() -> tempfile::TempDir {
+        let repo = tempfile::tempdir().unwrap();
+        let path = repo.path();
+        git(path, &["init", "-q", "-b", "main"]);
+        git(path, &["config", "user.email", "t@example.com"]);
+        git(path, &["config", "user.name", "T"]);
+        let original: String = (1..=12)
+            .map(|n| if n == 6 { "apple\n".into() } else { format!("line{n}\n") })
+            .collect();
+        std::fs::write(path.join("code.rs"), &original).unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "base"]);
+
+        git(path, &["checkout", "-q", "-b", "feature"]);
+        std::fs::write(
+            path.join("code.rs"),
+            original.replace("apple\n", "banana\ncherry\n"),
+        )
+        .unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "change"]);
+
+        repo
+    }
+
+    /// Find the rendered row (as a string) that contains `needle`.
+    fn row_with(terminal: &Terminal<TestBackend>, needle: &str) -> String {
+        terminal
+            .backend()
+            .to_string()
+            .lines()
+            .find(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("no rendered row contains {needle:?}"))
+            .to_string()
+    }
+
+    #[test]
+    fn split_pairs_removed_and_added_on_one_row() {
+        let repo = modification_fixture();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::SelectCommit);
+        app.apply(keymap::Action::ToggleSplit);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        // Drop the sidebar and its divider so only the diff pane remains; the
+        // next `│` is the split cell divider.
+        let diff_pane = |line: String| line.split_once('│').unwrap().1.to_string();
+
+        // The removed "apple" and its paired added "banana" share one screen row,
+        // old on the left of the divider, new on the right.
+        let paired = diff_pane(row_with(&terminal, "apple"));
+        let divider = paired.find('│').expect("split row has a cell divider");
+        assert!(
+            paired.find("apple").unwrap() < divider,
+            "old text left of divider:\n{paired}"
+        );
+        assert!(
+            paired.find("banana").unwrap() > divider,
+            "new text right of divider:\n{paired}"
+        );
+
+        // The pure addition "cherry" renders right-only: nothing but blanks left
+        // of the divider on its row.
+        let added = diff_pane(row_with(&terminal, "cherry"));
+        let divider = added.find('│').unwrap();
+        assert!(
+            added[..divider].trim().is_empty(),
+            "pure addition has a blank left cell:\n{added}"
+        );
+    }
+
+    #[test]
+    fn split_divider_runs_unbroken_through_headers_and_empty_space() {
+        let repo = modification_fixture();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::SelectCommit);
+        app.apply(keymap::Action::ToggleSplit);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        // The cell divider column within the diff pane (after the sidebar divider).
+        let cell_column = |line: &str| {
+            line.split_once('│')
+                .and_then(|(_, pane)| pane.chars().position(|c| c == '│'))
+        };
+
+        let rendered = terminal.backend().to_string();
+        let content = cell_column(rendered.lines().find(|l| l.contains("apple")).unwrap())
+            .expect("a content row has the cell divider");
+
+        // The file header, the hunk header, and a blank row below the diff all
+        // carry the divider at the same column.
+        for needle in ["code.rs", "@@", "  "] {
+            let row = rendered
+                .lines()
+                .rev()
+                .find(|l| l.contains(needle) && l.contains('│'))
+                .unwrap();
+            assert_eq!(
+                cell_column(row),
+                Some(content),
+                "divider should align on row {needle:?}:\n{row}"
+            );
+        }
+    }
+
+    #[test]
+    fn split_toggles_back_to_an_identical_unified_view() {
+        let repo = modification_fixture();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::SelectCommit);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let render = |app: &mut App| {
+            let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+            terminal
+                .draw(|frame| ui::render(frame, app, &highlighter))
+                .unwrap();
+            terminal.backend().to_string()
+        };
+
+        let unified = render(&mut app);
+        app.apply(keymap::Action::ToggleSplit);
+        let split = render(&mut app);
+        app.apply(keymap::Action::ToggleSplit);
+        let back = render(&mut app);
+
+        assert_ne!(unified, split, "split view should differ from unified");
+        assert_eq!(unified, back, "toggling back reproduces the unified view");
+    }
+
+    #[test]
+    fn split_view_still_renders_annotation_blocks() {
+        let repo = modification_fixture();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::SelectCommit);
+        app.apply(keymap::Action::NextChange); // lands on the removed "apple" line
+        app.apply(keymap::Action::Down); // step onto the added "banana" line (new side)
+        app.apply(keymap::Action::Annotate);
+        for c in "needs a test".chars() {
+            app.apply(keymap::Action::EditorChar(c));
+        }
+        app.apply(keymap::Action::EditorSave);
+        app.apply(keymap::Action::ToggleSplit);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        let rendered = terminal.backend().to_string();
+        assert!(
+            rendered.contains("needs a test"),
+            "annotation body shows in split view:\n{rendered}"
+        );
+    }
 }
