@@ -4,8 +4,13 @@ A local TUI for code-review annotations over git/jj.
 
 Agentic development turns you into a reviewer, but the review loop is stuck in
 chat. `margin` lets you step through a change in the terminal, pin comments to
-lines or ranges, and hand them to a coding agent through a small CLI — no
-throwaway PR or GitHub round-trip.
+lines or ranges, and hand them to a coding agent through a small CLI.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.svg">
+  <img alt="margin reviewing a diff: the annotation overview band above a syntax-highlighted diff with inline annotations, one open and one resolved by an agent" src="docs/screenshot-light.svg">
+</picture>
+
 
 ## Usage
 
@@ -126,6 +131,13 @@ optional.
 ```sh
 cargo build --release
 cargo test
+```
+
+The screenshots above are generated from the headless renderer, so they stay in
+sync with the UI:
+
+```sh
+cargo test dump_screenshot -- --ignored   # rewrites docs/screenshot-{dark,light}.svg
 ```
 
 ## License

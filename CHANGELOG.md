@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- README screenshots (dark and light), rendered deterministically from the
+  headless TUI via the ignored `dump_screenshot` test (`cargo test
+  dump_screenshot -- --ignored`).
 - Compose an annotation in `$EDITOR`: `Ctrl-e` in the annotation editor suspends
   the TUI and opens the body in `$VISUAL`/`$EDITOR` (falling back to `vi`), seeded
   below a marker line; saving feeds the text back. The ignored block above the

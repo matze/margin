@@ -8,6 +8,8 @@ mod agent;
 mod app;
 mod highlight;
 mod keymap;
+#[cfg(test)]
+mod svg;
 mod theme;
 mod ui;
 
@@ -266,6 +268,276 @@ mod tests {
         git(path, &["commit", "-q", "-m", "Add lib"]);
 
         repo
+    }
+
+    /// Commit the staged tree with author/committer identity *and dates* pinned,
+    /// so the demo repo's commit hashes are byte-stable run to run.
+    fn commit_pinned(dir: &Path, message: &str) {
+        assert!(
+            Command::new("git")
+                .current_dir(dir)
+                .args(["commit", "-q", "-m", message])
+                .env("GIT_AUTHOR_DATE", "2026-01-02T03:04:05 +0000")
+                .env("GIT_COMMITTER_DATE", "2026-01-02T03:04:05 +0000")
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+
+    /// A realistic single-commit change (a token-bucket limiter gaining
+    /// time-based refill) used to render the README screenshots. Larger and more
+    /// representative than [`fixture`], with a visible add/remove hunk for syntax
+    /// highlighting and diff tints.
+    fn demo_fixture() -> tempfile::TempDir {
+        let repo = tempfile::tempdir().unwrap();
+        let path = repo.path();
+        git(path, &["init", "-q", "-b", "main"]);
+        git(path, &["config", "user.email", "reviewer@example.com"]);
+        git(path, &["config", "user.name", "Reviewer"]);
+
+        let base = "\
+use std::time::Instant;
+
+/// A token-bucket rate limiter.
+pub struct Limiter {
+    capacity: u32,
+    tokens: u32,
+    last: Instant,
+}
+
+impl Limiter {
+    pub fn new(capacity: u32) -> Self {
+        Self { capacity, tokens: capacity, last: Instant::now() }
+    }
+
+    /// Take one token, returning whether the call is allowed.
+    pub fn try_acquire(&mut self) -> bool {
+        if self.tokens == 0 {
+            return false;
+        }
+
+        self.tokens -= 1;
+        true
+    }
+}
+";
+        std::fs::write(path.join("rate.rs"), base).unwrap();
+        git(path, &["add", "-A"]);
+        commit_pinned(path, "Add a token-bucket limiter");
+
+        git(path, &["checkout", "-q", "-b", "feature"]);
+        let feature = "\
+use std::time::Instant;
+
+/// A token-bucket rate limiter.
+pub struct Limiter {
+    capacity: u32,
+    tokens: u32,
+    last: Instant,
+}
+
+impl Limiter {
+    pub fn new(capacity: u32) -> Self {
+        Self { capacity, tokens: capacity, last: Instant::now() }
+    }
+
+    /// Take one token, returning whether the call is allowed.
+    pub fn try_acquire(&mut self) -> bool {
+        self.refill();
+
+        if self.tokens == 0 {
+            return false;
+        }
+
+        self.tokens -= 1;
+        true
+    }
+
+    /// Add back the tokens accrued since the last call.
+    fn refill(&mut self) {
+        let elapsed = self.last.elapsed().as_secs() as u32;
+        self.tokens = (self.tokens + elapsed).min(self.capacity);
+        self.last = Instant::now();
+    }
+}
+";
+        std::fs::write(path.join("rate.rs"), feature).unwrap();
+        git(path, &["add", "-A"]);
+        commit_pinned(path, "Refill the token bucket as time passes");
+
+        repo
+    }
+
+    /// The `app.rows` index of the added diff line whose content contains
+    /// `needle`.
+    fn added_row(app: &App, needle: &str) -> usize {
+        app.rows
+            .iter()
+            .position(|row| {
+                matches!(
+                    row,
+                    super::app::Row::Line { line, .. }
+                        if line.kind == crate::vcs::DiffLineKind::Added
+                            && line.content.contains(needle)
+                )
+            })
+            .unwrap_or_else(|| panic!("no added line matching {needle:?}"))
+    }
+
+    /// Drive the editor to annotate the added line matching `needle`, pressing
+    /// `cycle_type` times to pick a type (None→Fix→Question→Suggestion→…).
+    fn annotate(app: &mut App, needle: &str, body: &str, cycle_type: usize) {
+        app.diff_cursor = added_row(app, needle);
+        app.apply(keymap::Action::Annotate);
+
+        for ch in body.chars() {
+            app.apply(keymap::Action::EditorChar(ch));
+        }
+
+        for _ in 0..cycle_type {
+            app.apply(keymap::Action::EditorCycleType);
+        }
+
+        app.apply(keymap::Action::EditorSave);
+    }
+
+    /// Like [`annotate`], but over a visual selection that starts at `needle` and
+    /// extends `extra_lines` rows down, so the annotation spans a line range.
+    fn annotate_range(
+        app: &mut App,
+        needle: &str,
+        extra_lines: usize,
+        body: &str,
+        cycle_type: usize,
+    ) {
+        app.diff_cursor = added_row(app, needle);
+        app.apply(keymap::Action::StartSelection);
+
+        for _ in 0..extra_lines {
+            app.apply(keymap::Action::Down);
+        }
+
+        app.apply(keymap::Action::Annotate);
+
+        for ch in body.chars() {
+            app.apply(keymap::Action::EditorChar(ch));
+        }
+
+        for _ in 0..cycle_type {
+            app.apply(keymap::Action::EditorCycleType);
+        }
+
+        app.apply(keymap::Action::EditorSave);
+    }
+
+    /// Draw `app` to a fresh `width`×`height` backend and return the buffer.
+    fn draw(
+        app: &mut App,
+        highlighter: &Highlighter,
+        width: u16,
+        height: u16,
+    ) -> ratatui::buffer::Buffer {
+        app.diff_top = 0;
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, app, highlighter))
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    /// The last row carrying any content (a glyph or a tinted background),
+    /// ignoring the help row pinned to the bottom — so the canvas can be trimmed
+    /// to exactly the rendered scene with no empty rows.
+    fn last_content_row(buffer: &ratatui::buffer::Buffer) -> usize {
+        let area = buffer.area;
+
+        (0..area.height.saturating_sub(1))
+            .rev()
+            .find(|&y| {
+                (0..area.width).any(|x| {
+                    buffer.cell((area.x + x, area.y + y)).is_some_and(|c| {
+                        (c.symbol() != " " && !c.symbol().is_empty())
+                            || c.bg != ratatui::style::Color::Reset
+                    })
+                })
+            })
+            .map(usize::from)
+            .unwrap_or(0)
+    }
+
+    /// Build the screenshot scene: the demo diff with two annotations — a
+    /// multi-line question and a fix already resolved by the agent — and the band
+    /// showing the annotation overview.
+    fn render_demo_svg(mode: ThemeMode) -> String {
+        use crate::model::{Actor, EventKind};
+        use crate::store::Store;
+
+        let repo = demo_fixture();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), mode).unwrap();
+
+        annotate(
+            &mut app,
+            "self.refill();",
+            "Run refill() before the early return",
+            1, // Fix
+        );
+        annotate_range(
+            &mut app,
+            "as_secs() as u32",
+            2, // three lines: the whole refill body
+            "Whole-second truncation drops sub-second refills",
+            2, // Question
+        );
+
+        // Mark the fix resolved by the agent, the way a handoff would.
+        let fix = app
+            .annotations()
+            .iter()
+            .find(|resolved| resolved.annotation.body.starts_with("Run refill()"))
+            .map(crate::review::ResolvedAnnotation::id)
+            .expect("the fix annotation");
+        let store = Store::open(repo.path());
+        store
+            .append(&crate::model::Event::now(
+                fix,
+                Actor::Agent,
+                EventKind::AgentResolved {
+                    reply: Some("Moved refill() above the early return.".into()),
+                },
+            ))
+            .unwrap();
+        app.reload();
+
+        // Focus the band on the annotation overview, framed from the file header
+        // so both annotations are in shot.
+        app.apply(keymap::Action::ViewAnnotations);
+
+        // Open the editor on the top annotation so the note-entry box is in shot
+        // alongside the resolved fix and the range question below it.
+        app.diff_cursor = added_row(&app, "self.refill();");
+        app.apply(keymap::Action::Annotate);
+
+        // Render once tall to measure the scene, then trim the height so the diff
+        // fills the frame with no empty rows below it.
+        let highlighter = Highlighter::new(mode, app.palette.default_fg);
+        let probe = draw(&mut app, &highlighter, 100, 60);
+        let height = last_content_row(&probe) as u16 + 2;
+
+        svg::buffer_to_svg(&draw(&mut app, &highlighter, 100, height), mode)
+    }
+
+    #[test]
+    #[ignore = "regenerates the README screenshots; run with --ignored"]
+    fn dump_screenshot() {
+        for (mode, file) in [
+            (ThemeMode::Dark, "docs/screenshot-dark.svg"),
+            (ThemeMode::Light, "docs/screenshot-light.svg"),
+        ] {
+            let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
+            std::fs::write(path, render_demo_svg(mode)).unwrap();
+        }
     }
 
     #[test]
