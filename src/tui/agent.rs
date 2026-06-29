@@ -343,6 +343,7 @@ mod tests {
     /// `stream-json`, and [`spawn`] streams the parsed events back. Ignored
     /// because it mutates a process-global env var; run with `--ignored`.
     #[test]
+    #[cfg(unix)]
     #[ignore = "sets a global env var; run with --ignored"]
     fn spawn_streams_stub_events() {
         let dir = tempfile::tempdir().unwrap();
