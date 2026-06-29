@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Annotation editor key hints are styled consistently with the diff help line
   (bold, accented keys); the redundant `(ctrl-t)` is dropped from the box title.
 
+### Fixed
+
+- Annotations on deleted lines now render inline in the diff. They were filtered
+  out after saving, so the block showed only while the editor was open. In split
+  view an old-side block hangs under the left cell with the column divider
+  intact.
+
 ## [0.3.0]
 
 ### Added

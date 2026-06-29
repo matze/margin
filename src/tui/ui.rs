@@ -747,8 +747,6 @@ type Attachments = std::collections::HashMap<usize, Vec<Line<'static>>>;
 fn build_attachments(app: &App, width: usize) -> Attachments {
     let mut attachments: Attachments = std::collections::HashMap::new();
 
-    let (lead, indent) = block_layout(app, width);
-
     let Some(revision) = app.current_revision().map(|r| r.id.clone()) else {
         return attachments;
     };
@@ -764,7 +762,7 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
     for resolved in app.annotations() {
         let anchor = &resolved.annotation.anchor;
 
-        if anchor.revision_id != revision || anchor.side != Side::New {
+        if anchor.revision_id != revision {
             continue;
         }
 
@@ -778,40 +776,92 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
         };
 
         if let Some(row) = row_of_line(app, file_index, anchor.side, anchor.end_line.get()) {
+            let layout = block_layout(app, width, anchor.side);
             attachments.entry(row).or_default().extend(annotation_block(
                 resolved,
                 app.palette,
                 width,
-                &lead,
-                indent,
+                &layout,
             ));
         }
     }
 
     if let (Overlay::Editor(editor), Some(row)) = (&app.overlay, editor_anchor_row(app)) {
+        let layout = block_layout(app, width, editor_side(app, editor));
         attachments
             .entry(row)
             .or_default()
-            .extend(editor_block(editor, app.palette, width, &lead));
+            .extend(editor_block(editor, app.palette, width, &layout));
     }
 
     attachments
 }
 
-/// The left lead spans and content indent for inline blocks. Unified blocks
-/// start at column 0; split blocks hang under the right (new) cell, past the
-/// left cell and divider, since annotations anchor the new side.
-fn block_layout(app: &App, width: usize) -> (Vec<Span<'static>>, usize) {
-    match app.view {
-        DiffView::Unified => (Vec::new(), CONTENT_INDENT),
-        DiffView::Split => {
+/// How an inline block is positioned within a diff row: spans to its left, the
+/// content indent, and spans to its right.
+struct BlockLayout {
+    lead: Vec<Span<'static>>,
+    indent: usize,
+    trailer: Vec<Span<'static>>,
+}
+
+impl BlockLayout {
+    /// Wrap a block's `content` spans in its lead and trailer, padding the gap to
+    /// the next cell boundary with `bg`.
+    fn finish(&self, content: Vec<Span<'static>>, width: usize, bg: Color) -> Line<'static> {
+        let trailer_width: usize = self.trailer.iter().map(|s| s.content.chars().count()).sum();
+
+        let mut row = self.lead.clone();
+        row.extend(content);
+
+        let mut spans = padded_row(row, width.saturating_sub(trailer_width), bg).spans;
+        spans.extend(self.trailer.iter().cloned());
+
+        Line::from(spans)
+    }
+}
+
+/// Where an inline block hangs for the active view and anchored `side`. Unified
+/// blocks start at column 0; split blocks hang under the cell of their side (new
+/// on the right, old on the left), keeping the column divider unbroken.
+fn block_layout(app: &App, width: usize, side: Side) -> BlockLayout {
+    let divider = || Span::styled("│", Style::default().fg(app.palette.gutter_fg));
+    let blank = |cells: usize| Span::styled(" ".repeat(cells), Style::default().bg(Color::Reset));
+
+    match (app.view, side) {
+        (DiffView::Unified, _) => BlockLayout {
+            lead: Vec::new(),
+            indent: CONTENT_INDENT,
+            trailer: Vec::new(),
+        },
+        (DiffView::Split, Side::New) => {
             let cell_width = width.saturating_sub(1) / 2;
-            let lead = vec![
-                Span::styled(" ".repeat(cell_width), Style::default().bg(Color::Reset)),
-                Span::styled("│", Style::default().fg(app.palette.gutter_fg)),
-            ];
-            (lead, SPLIT_CONTENT_INDENT)
+            BlockLayout {
+                lead: vec![blank(cell_width), divider()],
+                indent: SPLIT_CONTENT_INDENT,
+                trailer: Vec::new(),
+            }
         }
+        (DiffView::Split, Side::Old) => {
+            let cell_width = width.saturating_sub(1) / 2;
+            BlockLayout {
+                lead: Vec::new(),
+                indent: SPLIT_CONTENT_INDENT,
+                trailer: vec![divider(), blank(width.saturating_sub(cell_width + 1))],
+            }
+        }
+    }
+}
+
+/// The side the open editor anchors to: its create target's, or the side of the
+/// annotation being edited.
+fn editor_side(app: &App, editor: &super::app::Editor) -> Side {
+    match &editor.mode {
+        EditorMode::Create(target) => target.side,
+        EditorMode::Edit(id) => app
+            .annotation(*id)
+            .map(|resolved| resolved.annotation.anchor.side)
+            .unwrap_or(Side::New),
     }
 }
 
@@ -823,8 +873,7 @@ fn annotation_block(
     resolved: &ResolvedAnnotation,
     palette: Palette,
     width: usize,
-    lead: &[Span<'static>],
-    indent: usize,
+    layout: &BlockLayout,
 ) -> Vec<Line<'static>> {
     let annotation = &resolved.annotation;
     let bar_color = palette.marker_open;
@@ -845,18 +894,20 @@ fn annotation_block(
             // The bracket takes 2 columns; the type tag fills the rest of the
             // gutter region so body text starts at the content column.
             let tag = if index == 0 { kind } else { "" };
-            let gutter = format!("{tag:<width$}", width = indent - 2);
+            let gutter = format!("{tag:<width$}", width = layout.indent - 2);
 
-            let mut spans = lead.to_vec();
-            spans.extend([
-                bracket_span(bracket, bar_color, bg),
-                Span::styled(gutter, Style::default().fg(palette.gutter_fg).bg(bg)),
-                Span::styled(
-                    text.to_string(),
-                    Style::default().fg(palette.default_fg).bg(bg),
-                ),
-            ]);
-            padded_row(spans, width, bg)
+            layout.finish(
+                vec![
+                    bracket_span(bracket, bar_color, bg),
+                    Span::styled(gutter, Style::default().fg(palette.gutter_fg).bg(bg)),
+                    Span::styled(
+                        text.to_string(),
+                        Style::default().fg(palette.default_fg).bg(bg),
+                    ),
+                ],
+                width,
+                bg,
+            )
         })
         .collect()
 }
@@ -867,7 +918,7 @@ fn editor_block(
     editor: &super::app::Editor,
     palette: Palette,
     width: usize,
-    lead: &[Span<'static>],
+    layout: &BlockLayout,
 ) -> Vec<Line<'static>> {
     let bg = palette.annotation_bg;
     let bar_color = palette.marker_open;
@@ -948,10 +999,9 @@ fn editor_block(
                 i if i == last => '└',
                 _ => '│',
             };
-            let mut row = lead.to_vec();
-            row.push(bracket_span(bracket, bar_color, bg));
-            row.append(&mut spans);
-            padded_row(row, width, bg)
+            let mut content = vec![bracket_span(bracket, bar_color, bg)];
+            content.append(&mut spans);
+            layout.finish(content, width, bg)
         })
         .collect()
 }

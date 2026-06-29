@@ -869,6 +869,59 @@ mod tests {
         );
     }
 
+    #[test]
+    fn annotating_a_removed_line_renders_inline() {
+        use crate::model::Side;
+
+        let repo = modification_fixture();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::SelectCommit);
+        app.apply(keymap::Action::NextChange); // lands on the removed "apple" line
+        app.apply(keymap::Action::Annotate);
+        for c in "deleted on purpose".chars() {
+            app.apply(keymap::Action::EditorChar(c));
+        }
+        app.apply(keymap::Action::EditorSave);
+
+        // The annotation anchors the old side; it must still render inline in both
+        // views, not vanish once the editor closes.
+        assert_eq!(app.annotations()[0].annotation.anchor.side, Side::Old);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let render = |app: &mut App| {
+            let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+            terminal
+                .draw(|frame| ui::render(frame, app, &highlighter))
+                .unwrap();
+            terminal.backend().to_string()
+        };
+
+        assert!(
+            render(&mut app).contains("deleted on purpose"),
+            "old-side annotation shows in unified view"
+        );
+
+        app.apply(keymap::Action::ToggleSplit);
+        let split = render(&mut app);
+        assert!(
+            split.contains("deleted on purpose"),
+            "old-side annotation shows in split view:\n{split}"
+        );
+
+        // In split the block hangs under the left (old) cell, leaving the divider
+        // and right cell intact.
+        let block = split
+            .lines()
+            .find(|l| l.contains("deleted on purpose"))
+            .unwrap();
+        let divider = block.find('│').expect("block row keeps the cell divider");
+        assert!(
+            block.find("deleted on purpose").unwrap() < divider,
+            "old-side block sits left of the divider:\n{block}"
+        );
+    }
+
     /// A feature commit touching two files (`alpha.rs`, `beta.rs`), so the file
     /// panel has more than one entry to navigate.
     fn multi_file_fixture() -> tempfile::TempDir {
