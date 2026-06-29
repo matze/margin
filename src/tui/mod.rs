@@ -90,7 +90,10 @@ fn watch_store(repo_root: &Path, sender: async_channel::Sender<()>) -> Result<Re
 
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         if let Ok(event) = event
-            && event.paths.iter().any(|p| p.ends_with("annotations.ndjson"))
+            && event
+                .paths
+                .iter()
+                .any(|p| p.ends_with("annotations.ndjson"))
         {
             let _ = sender.try_send(());
         }
@@ -122,13 +125,10 @@ async fn event_loop(
 
         // `EventStream::next` is cancel-safe, so dropping the losing future when
         // the race resolves loses no input.
-        let wake = future::race(
-            async { Wake::Terminal(reader.next().await) },
-            async {
-                let _ = file_changes.recv().await;
-                Wake::File
-            },
-        )
+        let wake = future::race(async { Wake::Terminal(reader.next().await) }, async {
+            let _ = file_changes.recv().await;
+            Wake::File
+        })
         .await;
 
         match wake {
@@ -563,10 +563,7 @@ mod tests {
         let repo = fixture();
         let mut app = app_with_annotation(repo.path());
 
-        assert!(
-            !app.reload_if_changed(),
-            "no write means no reload"
-        );
+        assert!(!app.reload_if_changed(), "no write means no reload");
 
         Store::open(repo.path())
             .append(&Event::now(
