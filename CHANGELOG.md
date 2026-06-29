@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one view at a time — commits (list beside the selected commit's message),
   files, or annotations. `Shift-Tab` cycles the band view; `Tab` toggles focus
   between the band and the diff.
+- Annotation editor key hints are styled consistently with the diff help line
+  (bold, accented keys); the redundant `(ctrl-t)` is dropped from the box title.
 
 ## [0.3.0]
 

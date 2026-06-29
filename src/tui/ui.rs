@@ -884,7 +884,7 @@ fn editor_block(
     };
 
     let mut contents: Vec<Vec<Span<'static>>> = vec![vec![Span::styled(
-        format!("{title}   type: {kind} (ctrl-t)"),
+        format!("{title}   type: {kind}"),
         Style::default()
             .fg(palette.gutter_fg)
             .bg(bg)
@@ -910,10 +910,26 @@ fn editor_block(
         )]);
     }
 
-    contents.push(vec![Span::styled(
-        "ctrl-s save · ctrl-t type · esc cancel",
-        Style::default().fg(palette.gutter_fg).bg(bg),
-    )]);
+    let dim = Style::default().fg(palette.gutter_fg).bg(bg);
+    let key_style = Style::default()
+        .fg(palette.help_key)
+        .bg(bg)
+        .add_modifier(Modifier::BOLD);
+    let mut hint = Vec::new();
+
+    for (index, (key, label)) in [("ctrl-s", "save"), ("ctrl-t", "type"), ("esc", "cancel")]
+        .iter()
+        .enumerate()
+    {
+        if index > 0 {
+            hint.push(Span::styled(" · ", dim));
+        }
+
+        hint.push(Span::styled(*key, key_style));
+        hint.push(Span::styled(format!(" {label}"), dim));
+    }
+
+    contents.push(hint);
 
     // When editing, the annotated lines above already opened the bracket, so the
     // block continues it; when creating, the block opens its own.
