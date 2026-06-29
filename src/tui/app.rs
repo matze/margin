@@ -470,7 +470,7 @@ pub struct App {
     base: Base,
     /// Modified-time of the annotation log at the last [`App::reload_if_changed`]
     /// check, used to detect out-of-band writes.
-    last_store_mtime: Option<SystemTime>,
+    last_store_stamp: Option<StoreStamp>,
 
     revisions: Vec<Revision>,
     pub listing_source: ListingSource,
@@ -538,14 +538,14 @@ impl App {
         let repo_root = backend.root().to_path_buf();
         let store = Store::open(&repo_root);
         let listing = backend.revisions(&base)?;
-        let last_store_mtime = store_mtime(&store);
+        let last_store_stamp = store_stamp(&store);
 
         let mut app = Self {
             backend,
             repo_root,
             store,
             base,
-            last_store_mtime,
+            last_store_stamp,
             revisions: listing.revisions,
             listing_source: listing.source,
             commit_cursor: 0,
@@ -1375,9 +1375,9 @@ impl App {
     /// Reload when the annotation log changed on disk since the last check.
     /// Returns whether a reload happened, so the caller can redraw.
     pub fn reload_if_changed(&mut self) -> bool {
-        let mtime = store_mtime(&self.store);
+        let stamp = store_stamp(&self.store);
 
-        if mtime == self.last_store_mtime {
+        if stamp == self.last_store_stamp {
             return false;
         }
 
@@ -1877,7 +1877,7 @@ impl App {
         // Record the log's state as of this read so a later out-of-band write is
         // detectable and our own writes (which run through here) do not look
         // like one.
-        self.last_store_mtime = store_mtime(&self.store);
+        self.last_store_stamp = store_stamp(&self.store);
     }
 
     fn recompute_commit_markers(&mut self) {
@@ -1947,10 +1947,24 @@ fn location_label(path: &RepoRelPath, start: u32, end: u32) -> String {
     }
 }
 
-fn store_mtime(store: &Store) -> Option<SystemTime> {
-    std::fs::metadata(store.path())
-        .and_then(|meta| meta.modified())
-        .ok()
+/// A change signature for the annotation log: modification time paired with
+/// length. The log is append-only, so its length grows on every write — that
+/// catches an append landing within the same coarse mtime tick, which mtime
+/// alone would miss.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct StoreStamp {
+    modified: SystemTime,
+    len: u64,
+}
+
+fn store_stamp(store: &Store) -> Option<StoreStamp> {
+    let meta = std::fs::metadata(store.path()).ok()?;
+    let modified = meta.modified().ok()?;
+
+    Some(StoreStamp {
+        modified,
+        len: meta.len(),
+    })
 }
 
 /// Step a cursor index up or down, clamped to `[0, max]`.
