@@ -15,6 +15,8 @@ pub enum Action {
     HalfPageDown,
     NextChange,
     PrevChange,
+    NextAnnotation,
+    PrevAnnotation,
     NextCommit,
     PrevCommit,
     ExpandContext,
@@ -93,6 +95,8 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('k') | KeyCode::Up => Some(Action::Up),
         KeyCode::Char('n') => Some(Action::NextChange),
         KeyCode::Char('p') => Some(Action::PrevChange),
+        KeyCode::Char('N') => Some(Action::NextAnnotation),
+        KeyCode::Char('P') => Some(Action::PrevAnnotation),
         KeyCode::Char('J') => Some(Action::NextCommit),
         KeyCode::Char('K') => Some(Action::PrevCommit),
         KeyCode::Char('+') | KeyCode::Char('=') => Some(Action::ExpandContext),
@@ -130,6 +134,18 @@ mod tests {
         assert_eq!(map(press(KeyCode::Down), false), Some(Action::Down));
         assert_eq!(map(press(KeyCode::Char('k')), false), Some(Action::Up));
         assert_eq!(map(press(KeyCode::Up), false), Some(Action::Up));
+    }
+
+    #[test]
+    fn shift_np_jumps_between_annotations() {
+        assert_eq!(
+            map(press(KeyCode::Char('N')), false),
+            Some(Action::NextAnnotation)
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('P')), false),
+            Some(Action::PrevAnnotation)
+        );
     }
 
     #[test]

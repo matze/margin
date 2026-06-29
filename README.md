@@ -47,6 +47,7 @@ In the diff:
 | Key | Action |
 | --- | --- |
 | `n` / `p` | next / previous change |
+| `N` / `P` | next / previous annotation (crosses into adjacent commits) |
 | `J` / `K` | next / previous commit |
 | `Ctrl-d` / `Ctrl-u` | half-page down / up |
 | `+` / `-` | expand / collapse context |

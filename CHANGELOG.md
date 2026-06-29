@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Jump between annotations: `N` / `P` (from either pane) move the cursor to the
+  first line of the next / previous annotated span, crossing into the nearest
+  adjacent commit with an anchored annotation once the current diff is
+  exhausted.
 - Reload the review state without restarting: `R` re-reads revisions, the diff,
   and the annotation log from disk, reflecting work an agent did while margin
   stayed open. The same reload also runs automatically as soon as the annotation

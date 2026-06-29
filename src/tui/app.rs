@@ -435,6 +435,8 @@ impl App {
             Action::HalfPageDown => self.move_page(Direction::Down),
             Action::NextChange => self.jump_change(Direction::Down),
             Action::PrevChange => self.jump_change(Direction::Up),
+            Action::NextAnnotation => self.jump_annotation(Direction::Down),
+            Action::PrevAnnotation => self.jump_annotation(Direction::Up),
             Action::NextCommit => self.step_commit(Direction::Down),
             Action::PrevCommit => self.step_commit(Direction::Up),
             Action::ExpandContext => self.expand_context(Direction::Down),
@@ -603,6 +605,111 @@ impl App {
         if let Some(index) = target {
             self.diff_cursor = index;
         }
+    }
+
+    /// Move the diff cursor to the first line of the next/previous annotated
+    /// span and focus the diff. Within the current diff it steps to the adjacent
+    /// span (landing on its first line so repeated presses move between
+    /// annotations, not within one); once the diff is exhausted it crosses into
+    /// the nearest commit with an anchored annotation and lands on its
+    /// first/last span. Available from either pane.
+    fn jump_annotation(&mut self, direction: Direction) {
+        if !matches!(self.overlay, Overlay::None) {
+            return;
+        }
+
+        if let Some(index) = self.adjacent_annotation_start(direction) {
+            self.diff_cursor = index;
+            self.focus = Focus::Diff;
+            return;
+        }
+
+        self.jump_annotation_across_commits(direction);
+    }
+
+    /// The next/previous annotated-span start relative to the diff cursor within
+    /// the current diff, if any.
+    fn adjacent_annotation_start(&self, direction: Direction) -> Option<usize> {
+        let is_start = |index: &usize| self.is_annotation_start(*index);
+
+        match direction {
+            Direction::Down => (self.diff_cursor + 1..self.rows.len()).find(is_start),
+            Direction::Up => (0..self.diff_cursor).rev().find(is_start),
+        }
+    }
+
+    /// Cross into the nearest commit (in `direction`) with an anchored
+    /// annotation and place the cursor on its first (down) or last (up)
+    /// annotated span, focusing the diff. Commits whose only annotations are
+    /// orphaned are skipped, since they have no gutter span to land on.
+    fn jump_annotation_across_commits(&mut self, direction: Direction) {
+        let has_anchored = |index: &usize| {
+            self.revisions
+                .get(*index)
+                .is_some_and(|revision| self.commit_has_anchored_annotation(&revision.id))
+        };
+
+        let target = match direction {
+            Direction::Down => (self.commit_cursor + 1..self.revisions.len()).find(has_anchored),
+            Direction::Up => (0..self.commit_cursor).rev().find(has_anchored),
+        };
+
+        let Some(index) = target else {
+            self.status_message = Some(
+                match direction {
+                    Direction::Down => "no later annotation",
+                    Direction::Up => "no earlier annotation",
+                }
+                .into(),
+            );
+            return;
+        };
+
+        self.commit_cursor = index;
+        self.load_selected_commit();
+        self.focus = Focus::Diff;
+
+        let starts = (0..self.rows.len()).filter(|&index| self.is_annotation_start(index));
+
+        if let Some(row) = match direction {
+            Direction::Down => starts.min(),
+            Direction::Up => starts.max(),
+        } {
+            self.diff_cursor = row;
+        }
+    }
+
+    /// True when `revision` has an annotation that anchors to a live diff line
+    /// (i.e. is not orphaned), so jumping there lands on a gutter span.
+    fn commit_has_anchored_annotation(&self, revision: &RevisionId) -> bool {
+        self.annotations.iter().any(|resolved| {
+            resolved.annotation.anchor.revision_id == *revision
+                && !matches!(resolved.location, Resolution::Orphaned)
+        })
+    }
+
+    /// True when `index` begins an annotated span: an annotated line whose
+    /// predecessor is not annotated.
+    fn is_annotation_start(&self, index: usize) -> bool {
+        self.is_annotated_line(index) && (index == 0 || !self.is_annotated_line(index - 1))
+    }
+
+    /// True when the diff line at `index` carries an annotation gutter marker.
+    fn is_annotated_line(&self, index: usize) -> bool {
+        let Some(Row::Line {
+            file_index, line, ..
+        }) = self.rows.get(index)
+        else {
+            return false;
+        };
+
+        let side = line.kind.side();
+        let number = match side {
+            Side::New => line.new_no,
+            Side::Old => line.old_no,
+        };
+
+        number.is_some_and(|no| self.line_marker(*file_index, side, no.get()).is_some())
     }
 
     /// Switch to the next/previous commit while keeping the diff focused, so the
