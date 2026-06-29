@@ -87,11 +87,12 @@ fn band_height(app: &App, total: u16) -> u16 {
 }
 
 /// The commits view's two columns and the divider between them, as one layout so
-/// the band body and its bottom rule stay column-aligned. The commit list and the
-/// message column split the band evenly.
+/// the band body and its bottom rule stay column-aligned. The list column width
+/// matches the split-diff cell ([`render_diff`]) so this divider lines up with the
+/// split divider below it.
 fn commit_columns(area: Rect) -> std::rc::Rc<[Rect]> {
     Layout::horizontal([
-        Constraint::Percentage(50),
+        Constraint::Length(area.width.saturating_sub(1) / 2),
         Constraint::Length(1),
         Constraint::Min(0),
     ])

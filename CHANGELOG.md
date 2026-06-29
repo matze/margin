@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The commit list/message divider in the top band now lines up with the
+  split-diff divider below it. The two were off by one column.
+
 ## [0.5.0]
 
 ### Added
