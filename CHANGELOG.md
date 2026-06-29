@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Compose an annotation in `$EDITOR`: `Ctrl-e` in the annotation editor suspends
+  the TUI and opens the body in `$VISUAL`/`$EDITOR` (falling back to `vi`), seeded
+  below a marker line; saving feeds the text back. The ignored block above the
+  marker quotes the annotated source lines for reference. Everything above the
+  marker is ignored.
 - Trigger a headless coding agent from the TUI: `c` hands the focused annotation
   to a `claude` session, `C` hands it every open annotation, and `L` toggles a
   log panel below the diff that streams the session's assistant messages and tool calls. The
@@ -16,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outcomes; the session is non-blocking. The agent inherits the environment (so
   `CLAUDE_CONFIG_DIR`/`PATH` reach it), and `MARGIN_AGENT_CMD` overrides the
   command.
+
+### Changed
+
+- The annotation editor now supports in-buffer cursor movement and editing:
+  character/line motion (arrows), word motion (`Ctrl-←`/`Ctrl-→`), line ends
+  (`Home`/`End`), and `Del` / `Ctrl-w` deletion. Typing and Backspace act at the
+  cursor instead of only at the end.
 
 ### Fixed
 

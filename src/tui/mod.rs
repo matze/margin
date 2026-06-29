@@ -15,15 +15,19 @@ pub use app::App;
 pub use theme::ThemeMode;
 
 use std::path::Path;
+use std::process::Command;
 
 use anyhow::Result;
 use futures_lite::{StreamExt, future};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use ratatui::crossterm::event::{Event, EventStream, KeyEventKind};
-use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
 
-use agent::AgentEvent;
 use crate::vcs::{Backend, Base, Vcs};
+use agent::AgentEvent;
 use highlight::Highlighter;
 
 /// Launch the TUI against `backend`, listing commits per `base`. `theme` is the
@@ -160,6 +164,10 @@ async fn event_loop(
                     && let Some(action) = keymap::map(key, app.is_editing())
                 {
                     app.apply(action);
+
+                    if app.take_external_edit_request() {
+                        edit_in_external(terminal, app);
+                    }
                 }
             }
             // Resize and other events fall through to the redraw at the loop top.
@@ -174,6 +182,54 @@ async fn event_loop(
     }
 
     Ok(())
+}
+
+/// Suspend the TUI, compose the open editor's body in `$EDITOR`, and feed the
+/// result back. The terminal is restored and repainted on every path so a failed
+/// launch never wedges it.
+fn edit_in_external(terminal: &mut ratatui::DefaultTerminal, app: &mut App) {
+    let Some(seed) = app.editor_seed() else {
+        return;
+    };
+
+    let outcome = suspend_and_edit(&seed);
+
+    // Re-enter the alternate screen and repaint regardless of the outcome.
+    let _ = enable_raw_mode();
+    let _ = execute!(std::io::stdout(), EnterAlternateScreen);
+    let _ = terminal.clear();
+
+    match outcome {
+        Ok(edited) => app.apply_external_edit(edited),
+        Err(error) => app.status_message = Some(format!("editor failed: {error}")),
+    }
+}
+
+/// Leave the alternate screen, run `$EDITOR` on a temp file seeded from `seed`,
+/// and return the stripped result. Re-entering the screen is the caller's job.
+fn suspend_and_edit(seed: &app::EditorSeed) -> std::io::Result<String> {
+    disable_raw_mode()?;
+    execute!(std::io::stdout(), LeaveAlternateScreen)?;
+
+    let path = std::env::temp_dir().join(format!("margin-annotation-{}.md", std::process::id()));
+    std::fs::write(&path, app::editor_template(seed))?;
+
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+
+    // `sh -c '<editor> "$1"' sh <path>` passes the path as a single argument,
+    // so editors carrying flags (e.g. `code -w`) still work.
+    Command::new("sh")
+        .arg("-c")
+        .arg(format!("{editor} \"$1\""))
+        .arg("sh")
+        .arg(&path)
+        .status()?;
+
+    let edited = std::fs::read_to_string(&path).map(|content| app::strip_template(&content));
+    let _ = std::fs::remove_file(&path);
+    edited
 }
 
 #[cfg(test)]
@@ -721,6 +777,61 @@ mod tests {
         assert!(
             terminal.backend().to_string().contains("ctrl-s save"),
             "inline editor"
+        );
+    }
+
+    #[test]
+    fn editor_paints_the_cursor_under_a_mid_line_character() {
+        let repo = fixture();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::SelectCommit);
+        app.apply(keymap::Action::Down);
+        app.apply(keymap::Action::Down);
+        app.apply(keymap::Action::Annotate);
+        for c in "abZ".chars() {
+            app.apply(keymap::Action::EditorChar(c));
+        }
+        app.apply(keymap::Action::EditorLeft); // cursor lands on 'Z'
+
+        let cursor_bg = app.palette.text_cursor_bg;
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(110, 30)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let painted = (0..buffer.area.height).any(|y| {
+            (0..buffer.area.width).any(|x| {
+                buffer
+                    .cell((x, y))
+                    .is_some_and(|cell| cell.bg == cursor_bg && cell.symbol() == "Z")
+            })
+        });
+        assert!(
+            painted,
+            "the editor cursor cell carries the cursor background:\n{}",
+            terminal.backend()
+        );
+    }
+
+    #[test]
+    fn editor_seed_quotes_the_annotated_source_line() {
+        let repo = fixture();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::SelectCommit);
+        app.apply(keymap::Action::NextChange); // land on an added line
+        app.apply(keymap::Action::Annotate);
+
+        let seed = app.editor_seed().expect("editor is open");
+        assert!(
+            seed.source_lines
+                .iter()
+                .any(|line| line.contains("fn a()") || line.contains("fn b()")),
+            "the seed quotes the annotated source: {:?}",
+            seed.source_lines
         );
     }
 

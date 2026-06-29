@@ -991,23 +991,25 @@ fn editor_block(
             .add_modifier(Modifier::BOLD),
     )]];
 
-    let body_lines: Vec<&str> = if editor.body.is_empty() {
+    let body = editor.text.contents();
+    let body_lines: Vec<&str> = if body.is_empty() {
         vec![""]
     } else {
-        editor.body.split('\n').collect()
+        body.split('\n').collect()
     };
 
+    let (cursor_row, cursor_col) = editor.text.cursor_row_col();
+    let cursor_style = Style::default()
+        .fg(palette.text_cursor_fg)
+        .bg(palette.text_cursor_bg);
+    let text_style = Style::default().fg(palette.default_fg).bg(bg);
+
     for (index, text) in body_lines.iter().enumerate() {
-        let mut shown = text.to_string();
-
-        if index + 1 == body_lines.len() {
-            shown.push('▏'); // text cursor at the end of the buffer
+        if index == cursor_row {
+            contents.push(cursor_line(text, cursor_col, text_style, cursor_style));
+        } else {
+            contents.push(vec![Span::styled(text.to_string(), text_style)]);
         }
-
-        contents.push(vec![Span::styled(
-            shown,
-            Style::default().fg(palette.default_fg).bg(bg),
-        )]);
     }
 
     let dim = Style::default().fg(palette.gutter_fg).bg(bg);
@@ -1017,9 +1019,14 @@ fn editor_block(
         .add_modifier(Modifier::BOLD);
     let mut hint = Vec::new();
 
-    for (index, (key, label)) in [("ctrl-s", "save"), ("ctrl-t", "type"), ("esc", "cancel")]
-        .iter()
-        .enumerate()
+    for (index, (key, label)) in [
+        ("ctrl-s", "save"),
+        ("ctrl-t", "type"),
+        ("ctrl-e", "editor"),
+        ("esc", "cancel"),
+    ]
+    .iter()
+    .enumerate()
     {
         if index > 0 {
             hint.push(Span::styled(" · ", dim));
@@ -1053,6 +1060,31 @@ fn editor_block(
             layout.finish(content, width, bg)
         })
         .collect()
+}
+
+/// Render one editor line with the cursor highlighted at `column` (counted in
+/// `char`s). At or past the line's end the cursor sits on a trailing space.
+fn cursor_line(
+    line: &str,
+    column: usize,
+    text_style: Style,
+    cursor_style: Style,
+) -> Vec<Span<'static>> {
+    let chars: Vec<char> = line.chars().collect();
+    let before: String = chars[..column.min(chars.len())].iter().collect();
+    let at = chars.get(column).copied().unwrap_or(' ');
+    let after: String = chars.get(column + 1..).unwrap_or_default().iter().collect();
+
+    let mut spans = vec![
+        Span::styled(before, text_style),
+        Span::styled(at.to_string(), cursor_style),
+    ];
+
+    if !after.is_empty() {
+        spans.push(Span::styled(after, text_style));
+    }
+
+    spans
 }
 
 /// A gutter-aligned bracket segment (the column-0 glyph plus its trailing space).

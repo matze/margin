@@ -58,6 +58,21 @@ In the diff:
 
 Annotations: `e` edit · `r` reopen · `d` delete · `u` undo · `t` timeline.
 
+In the annotation editor:
+
+| Key | Action |
+| --- | --- |
+| `←` / `→` · `↑` / `↓` | move the cursor by character / line |
+| `Ctrl-←` / `Ctrl-→` | move the cursor by word |
+| `Home` / `End` | jump to line start / end |
+| `Del` · `Ctrl-w` | delete forward · delete the previous word |
+| `Ctrl-e` | compose the annotation in `$EDITOR` (`$VISUAL`/`$EDITOR`, else `vi`) |
+| `Ctrl-t` · `Ctrl-s` · `Esc` | cycle type · save · cancel |
+
+`Ctrl-e` suspends the TUI and opens the body in your editor; the block above the
+marker line quotes the annotated source lines and is ignored, so write below it
+and save to apply.
+
 Hand a review off to a coding agent without leaving margin: `c` launches a
 headless `claude` on the focused annotation, `C` on every open annotation, and
 `L` toggles a log panel that streams the session's activity below the diff. The status line

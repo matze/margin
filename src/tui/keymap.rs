@@ -48,6 +48,18 @@ pub enum Action {
     EditorChar(char),
     EditorBackspace,
     EditorNewline,
+    EditorLeft,
+    EditorRight,
+    EditorUp,
+    EditorDown,
+    EditorWordLeft,
+    EditorWordRight,
+    EditorLineStart,
+    EditorLineEnd,
+    EditorDeleteForward,
+    EditorDeleteWordBack,
+    /// Hand the editor body off to `$EDITOR`.
+    EditorOpenExternal,
     EditorCycleType,
     EditorSave,
     SpawnAgentForAnnotation,
@@ -84,8 +96,19 @@ fn map_editor(key: KeyEvent, ctrl: bool) -> Option<Action> {
         KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Enter => Some(Action::EditorNewline),
         KeyCode::Backspace => Some(Action::EditorBackspace),
+        KeyCode::Delete => Some(Action::EditorDeleteForward),
+        KeyCode::Left if ctrl => Some(Action::EditorWordLeft),
+        KeyCode::Right if ctrl => Some(Action::EditorWordRight),
+        KeyCode::Left => Some(Action::EditorLeft),
+        KeyCode::Right => Some(Action::EditorRight),
+        KeyCode::Up => Some(Action::EditorUp),
+        KeyCode::Down => Some(Action::EditorDown),
+        KeyCode::Home => Some(Action::EditorLineStart),
+        KeyCode::End => Some(Action::EditorLineEnd),
         KeyCode::Char('s') if ctrl => Some(Action::EditorSave),
         KeyCode::Char('t') if ctrl => Some(Action::EditorCycleType),
+        KeyCode::Char('w') if ctrl => Some(Action::EditorDeleteWordBack),
+        KeyCode::Char('e') if ctrl => Some(Action::EditorOpenExternal),
         KeyCode::Char(c) if !ctrl => Some(Action::EditorChar(c)),
         _ => None,
     }
@@ -219,6 +242,35 @@ mod tests {
         assert_eq!(
             map(press(KeyCode::Char('c')), true),
             Some(Action::EditorChar('c'))
+        );
+    }
+
+    #[test]
+    fn editor_cursor_keys_map_only_while_editing() {
+        assert_eq!(map(press(KeyCode::Left), true), Some(Action::EditorLeft));
+        assert_eq!(
+            map(press(KeyCode::Home), true),
+            Some(Action::EditorLineStart)
+        );
+        assert_eq!(
+            map(press(KeyCode::Delete), true),
+            Some(Action::EditorDeleteForward)
+        );
+
+        let ctrl_left = KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL);
+        assert_eq!(map(ctrl_left, true), Some(Action::EditorWordLeft));
+
+        // Outside the editor the same keys do not produce editor actions.
+        assert_eq!(map(press(KeyCode::Home), false), None);
+    }
+
+    #[test]
+    fn ctrl_e_opens_the_external_editor_while_editing() {
+        let ctrl_e = KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL);
+        assert_eq!(map(ctrl_e, true), Some(Action::EditorOpenExternal));
+        assert_eq!(
+            map(press(KeyCode::Char('e')), true),
+            Some(Action::EditorChar('e'))
         );
     }
 

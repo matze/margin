@@ -210,6 +210,12 @@ pub struct Palette {
     pub selection_bg: Color,
     /// Background highlight for the focused row.
     pub cursor_bg: Color,
+    /// Background for the text cursor inside the annotation editor. Saturated so
+    /// it stays legible against the editor's pale background, unlike the subtle
+    /// row-highlight `cursor_bg`.
+    pub text_cursor_bg: Color,
+    /// Foreground for the character under the text cursor.
+    pub text_cursor_fg: Color,
     /// Tint for a source line that carries an annotation.
     pub annotated_line_bg: Color,
     /// Background for an inline annotation block (distinct from add/remove).
@@ -243,6 +249,8 @@ impl Palette {
                 remove_bg: Color::Rgb(58, 24, 28),
                 selection_bg: Color::Rgb(46, 52, 64),
                 cursor_bg: Color::Rgb(38, 42, 52),
+                text_cursor_bg: Color::Rgb(136, 192, 208),
+                text_cursor_fg: Color::Rgb(22, 26, 33),
                 annotated_line_bg: Color::Rgb(40, 38, 22),
                 annotation_bg: Color::Rgb(54, 50, 28),
             },
@@ -251,6 +259,8 @@ impl Palette {
                 remove_bg: Color::Rgb(250, 220, 222),
                 selection_bg: Color::Rgb(216, 224, 240),
                 cursor_bg: Color::Rgb(226, 232, 242),
+                text_cursor_bg: Color::Rgb(60, 110, 200),
+                text_cursor_fg: Color::Rgb(248, 250, 252),
                 annotated_line_bg: Color::Rgb(250, 246, 214),
                 annotation_bg: Color::Rgb(246, 238, 198),
             },
@@ -261,6 +271,8 @@ impl Palette {
             remove_bg: backgrounds.remove_bg,
             selection_bg: backgrounds.selection_bg,
             cursor_bg: backgrounds.cursor_bg,
+            text_cursor_bg: backgrounds.text_cursor_bg,
+            text_cursor_fg: backgrounds.text_cursor_fg,
             annotated_line_bg: backgrounds.annotated_line_bg,
             annotation_bg: backgrounds.annotation_bg,
             gutter_fg: Color::DarkGray,
@@ -283,6 +295,8 @@ struct Backgrounds {
     remove_bg: Color,
     selection_bg: Color,
     cursor_bg: Color,
+    text_cursor_bg: Color,
+    text_cursor_fg: Color,
     annotated_line_bg: Color,
     annotation_bg: Color,
 }

@@ -87,11 +87,273 @@ pub struct AgentSession {
     pub log_visible: bool,
 }
 
+/// A single-cursor text buffer for the annotation editor. `cursor` is a byte
+/// offset into `text`, kept on a `char` boundary and within `0..=text.len()` by
+/// every method, so it can never index mid-character.
+#[derive(Default)]
+pub struct TextField {
+    text: String,
+    cursor: usize,
+}
+
+impl TextField {
+    /// Seed the buffer with `text`, parking the cursor at the end.
+    pub fn seeded(text: String) -> Self {
+        let cursor = text.len();
+        Self { text, cursor }
+    }
+
+    pub fn contents(&self) -> &str {
+        &self.text
+    }
+
+    /// Replace the whole buffer, parking the cursor at the end.
+    pub fn set_text(&mut self, text: String) {
+        self.cursor = text.len();
+        self.text = text;
+    }
+
+    /// The cursor's zero-based `(row, column)`, counting columns in `char`s.
+    pub fn cursor_row_col(&self) -> (usize, usize) {
+        let before = &self.text[..self.cursor];
+        let row = before.matches('\n').count();
+        let column = before
+            .rsplit('\n')
+            .next()
+            .map_or(0, |line| line.chars().count());
+
+        (row, column)
+    }
+
+    pub fn insert(&mut self, c: char) {
+        self.text.insert(self.cursor, c);
+        self.cursor += c.len_utf8();
+    }
+
+    pub fn insert_newline(&mut self) {
+        self.insert('\n');
+    }
+
+    pub fn backspace(&mut self) {
+        if let Some(prev) = self.prev_boundary(self.cursor) {
+            self.text.replace_range(prev..self.cursor, "");
+            self.cursor = prev;
+        }
+    }
+
+    pub fn delete_forward(&mut self) {
+        if let Some(next) = self.next_boundary(self.cursor) {
+            self.text.replace_range(self.cursor..next, "");
+        }
+    }
+
+    pub fn delete_word_back(&mut self) {
+        let start = self.word_start_before(self.cursor);
+        self.text.replace_range(start..self.cursor, "");
+        self.cursor = start;
+    }
+
+    pub fn left(&mut self) {
+        if let Some(prev) = self.prev_boundary(self.cursor) {
+            self.cursor = prev;
+        }
+    }
+
+    pub fn right(&mut self) {
+        if let Some(next) = self.next_boundary(self.cursor) {
+            self.cursor = next;
+        }
+    }
+
+    pub fn word_left(&mut self) {
+        self.cursor = self.word_start_before(self.cursor);
+    }
+
+    pub fn word_right(&mut self) {
+        self.cursor = self.word_end_after(self.cursor);
+    }
+
+    pub fn line_start(&mut self) {
+        self.cursor = self.line_start_at(self.cursor);
+    }
+
+    pub fn line_end(&mut self) {
+        self.cursor = self.line_end_at(self.cursor);
+    }
+
+    pub fn up(&mut self) {
+        self.move_vertical(Direction::Up);
+    }
+
+    pub fn down(&mut self) {
+        self.move_vertical(Direction::Down);
+    }
+
+    /// Move to the same column on the line above/below, clamped to its end.
+    fn move_vertical(&mut self, direction: Direction) {
+        let line_start = self.line_start_at(self.cursor);
+        let column = self.text[line_start..self.cursor].chars().count();
+
+        let target_line_start = match direction {
+            Direction::Up if line_start == 0 => return,
+            Direction::Up => self.line_start_at(line_start - 1),
+            Direction::Down => {
+                let line_end = self.line_end_at(self.cursor);
+
+                if line_end == self.text.len() {
+                    return;
+                }
+
+                line_end + 1
+            }
+        };
+
+        self.cursor = self.column_to_offset(target_line_start, column);
+    }
+
+    /// The byte offset `column` chars into the line starting at `line_start`,
+    /// stopping at the line's end.
+    fn column_to_offset(&self, line_start: usize, column: usize) -> usize {
+        let line_end = self.line_end_at(line_start);
+        let mut offset = line_start;
+
+        for _ in 0..column {
+            match self.next_boundary(offset) {
+                Some(next) if next <= line_end => offset = next,
+                _ => break,
+            }
+        }
+
+        offset
+    }
+
+    fn line_start_at(&self, idx: usize) -> usize {
+        self.text[..idx].rfind('\n').map_or(0, |i| i + 1)
+    }
+
+    fn line_end_at(&self, idx: usize) -> usize {
+        self.text[idx..]
+            .find('\n')
+            .map_or(self.text.len(), |i| idx + i)
+    }
+
+    fn prev_boundary(&self, idx: usize) -> Option<usize> {
+        self.text[..idx].char_indices().next_back().map(|(i, _)| i)
+    }
+
+    fn next_boundary(&self, idx: usize) -> Option<usize> {
+        self.text[idx..]
+            .char_indices()
+            .nth(1)
+            .map(|(i, _)| idx + i)
+            .or(if idx < self.text.len() {
+                Some(self.text.len())
+            } else {
+                None
+            })
+    }
+
+    /// The start of the word at or before `idx`: skip trailing whitespace, then
+    /// the word's characters.
+    fn word_start_before(&self, idx: usize) -> usize {
+        let mut offset = idx;
+
+        while let Some(prev) = self.prev_boundary(offset) {
+            if self.text[prev..offset].chars().all(char::is_whitespace) {
+                offset = prev;
+            } else {
+                break;
+            }
+        }
+
+        while let Some(prev) = self.prev_boundary(offset) {
+            if self.text[prev..offset].chars().any(char::is_whitespace) {
+                break;
+            }
+
+            offset = prev;
+        }
+
+        offset
+    }
+
+    /// The end of the word at or after `idx`: skip leading whitespace, then the
+    /// word's characters.
+    fn word_end_after(&self, idx: usize) -> usize {
+        let mut offset = idx;
+
+        while offset < self.text.len() {
+            match self.text[offset..].chars().next() {
+                Some(c) if c.is_whitespace() => offset = self.next_boundary(offset).unwrap(),
+                _ => break,
+            }
+        }
+
+        while offset < self.text.len() {
+            match self.text[offset..].chars().next() {
+                Some(c) if !c.is_whitespace() => offset = self.next_boundary(offset).unwrap(),
+                _ => break,
+            }
+        }
+
+        offset
+    }
+}
+
+/// The marker line separating the ignored instruction block from the editable
+/// body in the `$EDITOR` template.
+const TEMPLATE_MARKER: &str = "# ----------------------- 8< -----------------------";
+
+/// What an external-editor session needs: the current body plus the annotated
+/// location and source lines to quote as read-only context.
+pub struct EditorSeed {
+    pub body: String,
+    pub location: String,
+    pub source_lines: Vec<String>,
+}
+
+/// Seed an external-editor buffer: an ignored instruction block quoting the
+/// annotated source lines, the marker line, then the current body below it.
+pub fn editor_template(seed: &EditorSeed) -> String {
+    let mut header = String::from(
+        "# margin annotation — write the text below the marker line.\n\
+         # Everything above the marker (these comments) is ignored on save.\n\
+         # Save & quit to apply; an empty body cancels.\n",
+    );
+
+    if !seed.source_lines.is_empty() {
+        header.push_str(&format!("#\n# Annotating {}:\n", seed.location));
+
+        for line in &seed.source_lines {
+            header.push_str("#   ");
+            header.push_str(line);
+            header.push('\n');
+        }
+    }
+
+    format!("{header}{TEMPLATE_MARKER}\n{}", seed.body)
+}
+
+/// Recover the body from an external-editor buffer: everything after the marker
+/// line, trailing blank lines trimmed. Absent the marker, the whole content is
+/// the body.
+pub fn strip_template(content: &str) -> String {
+    let body = match content.find(TEMPLATE_MARKER) {
+        Some(idx) => {
+            let after = &content[idx + TEMPLATE_MARKER.len()..];
+            after.strip_prefix('\n').unwrap_or(after)
+        }
+        None => content,
+    };
+
+    body.trim_end().to_string()
+}
+
 /// The annotation editor (PRD §11 annotation editor), used both to create a new
 /// annotation and to edit an existing one's body/type.
 pub struct Editor {
     pub mode: EditorMode,
-    pub body: String,
+    pub text: TextField,
     pub annotation_type: Option<AnnotationType>,
 }
 
@@ -255,6 +517,9 @@ pub struct App {
     pub palette: Palette,
     pub status_message: Option<String>,
     pub should_quit: bool,
+    /// Set when the editor asks to hand off to `$EDITOR`; the event loop, which
+    /// owns the terminal, performs the suspend/resume and clears it.
+    pending_external_edit: bool,
 
     /// The headless agent session and its log.
     pub agent: AgentSession,
@@ -310,6 +575,7 @@ impl App {
             palette: Palette::for_mode(theme_mode),
             status_message: None,
             should_quit: false,
+            pending_external_edit: false,
             agent: AgentSession::default(),
             agent_tx: None,
         };
@@ -488,9 +754,20 @@ impl App {
             Action::Delete => self.delete(),
             Action::Undo => self.undo_delete(),
             Action::Cancel => self.cancel(),
-            Action::EditorChar(c) => self.editor_char(c),
-            Action::EditorBackspace => self.editor_backspace(),
-            Action::EditorNewline => self.editor_newline(),
+            Action::EditorChar(c) => self.with_editor(|text| text.insert(c)),
+            Action::EditorBackspace => self.with_editor(TextField::backspace),
+            Action::EditorNewline => self.with_editor(TextField::insert_newline),
+            Action::EditorLeft => self.with_editor(TextField::left),
+            Action::EditorRight => self.with_editor(TextField::right),
+            Action::EditorUp => self.with_editor(TextField::up),
+            Action::EditorDown => self.with_editor(TextField::down),
+            Action::EditorWordLeft => self.with_editor(TextField::word_left),
+            Action::EditorWordRight => self.with_editor(TextField::word_right),
+            Action::EditorLineStart => self.with_editor(TextField::line_start),
+            Action::EditorLineEnd => self.with_editor(TextField::line_end),
+            Action::EditorDeleteForward => self.with_editor(TextField::delete_forward),
+            Action::EditorDeleteWordBack => self.with_editor(TextField::delete_word_back),
+            Action::EditorOpenExternal => self.request_external_edit(),
             Action::EditorCycleType => self.editor_cycle_type(),
             Action::EditorSave => self.editor_save(),
             Action::SpawnAgentForAnnotation => self.spawn_agent_for_annotation(),
@@ -917,7 +1194,7 @@ impl App {
         {
             self.overlay = Overlay::Editor(Editor {
                 mode: EditorMode::Edit(id),
-                body,
+                text: TextField::seeded(body),
                 annotation_type,
             });
             return;
@@ -930,7 +1207,7 @@ impl App {
 
         self.overlay = Overlay::Editor(Editor {
             mode: EditorMode::Create(target),
-            body: String::new(),
+            text: TextField::default(),
             annotation_type: None,
         });
     }
@@ -965,7 +1242,7 @@ impl App {
 
         self.overlay = Overlay::Editor(Editor {
             mode: EditorMode::Edit(resolved.annotation.id),
-            body: resolved.annotation.body.clone(),
+            text: TextField::seeded(resolved.annotation.body.clone()),
             annotation_type: resolved.annotation.annotation_type,
         });
     }
@@ -1145,7 +1422,9 @@ impl App {
 
         self.agent.running = true;
         self.agent.log.clear();
-        self.agent.log.push(format!("▶ launching agent for {label}"));
+        self.agent
+            .log
+            .push(format!("▶ launching agent for {label}"));
         self.status_message = Some(format!("agent started · {label}"));
 
         agent::spawn(self.repo_root.clone(), scope, sender);
@@ -1280,22 +1559,86 @@ impl App {
         }
     }
 
-    fn editor_char(&mut self, c: char) {
+    /// Run `edit` against the open editor's text buffer, if any.
+    fn with_editor(&mut self, edit: impl FnOnce(&mut TextField)) {
         if let Overlay::Editor(editor) = &mut self.overlay {
-            editor.body.push(c);
+            edit(&mut editor.text);
         }
     }
 
-    fn editor_backspace(&mut self) {
-        if let Overlay::Editor(editor) = &mut self.overlay {
-            editor.body.pop();
+    /// Request that the event loop hand the open editor's body off to `$EDITOR`.
+    fn request_external_edit(&mut self) {
+        if self.is_editing() {
+            self.pending_external_edit = true;
         }
     }
 
-    fn editor_newline(&mut self) {
-        if let Overlay::Editor(editor) = &mut self.overlay {
-            editor.body.push('\n');
-        }
+    /// Take the pending `$EDITOR` request (the event loop owns the terminal, so
+    /// it performs the suspend/resume).
+    pub fn take_external_edit_request(&mut self) -> bool {
+        std::mem::take(&mut self.pending_external_edit)
+    }
+
+    /// The open editor's body, type, and annotated source lines, for seeding the
+    /// `$EDITOR` template.
+    pub fn editor_seed(&self) -> Option<EditorSeed> {
+        let Overlay::Editor(editor) = &self.overlay else {
+            return None;
+        };
+
+        let (location, source_lines) = match &editor.mode {
+            EditorMode::Create(target) => (
+                location_label(&target.path, target.start.get(), target.end.get()),
+                self.target_source_lines(target),
+            ),
+            EditorMode::Edit(id) => self
+                .annotations
+                .iter()
+                .find(|resolved| resolved.id() == *id)
+                .map(|resolved| {
+                    let anchor = &resolved.annotation.anchor;
+                    (
+                        location_label(
+                            &anchor.file,
+                            anchor.start_line.get(),
+                            anchor.end_line.get(),
+                        ),
+                        anchor.anchored_text.clone(),
+                    )
+                })
+                .unwrap_or_default(),
+        };
+
+        Some(EditorSeed {
+            body: editor.text.contents().to_string(),
+            location,
+            source_lines,
+        })
+    }
+
+    /// The annotated source lines for a pending `Create` target, read from the
+    /// file at its revision (the new side, or the parent for a deleted line).
+    fn target_source_lines(&self, target: &Target) -> Vec<String> {
+        let source = match target.side {
+            Side::New => self.backend.file_at(&target.revision, &target.path),
+            Side::Old => self.backend.file_at_parent(&target.revision, &target.path),
+        };
+
+        let Ok(source) = source else {
+            return Vec::new();
+        };
+
+        let lines: Vec<&str> = source.lines().collect();
+
+        (target.start.get()..=target.end.get())
+            .filter_map(|n| lines.get(n as usize - 1).copied())
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Replace the open editor's body with text returned from `$EDITOR`.
+    pub fn apply_external_edit(&mut self, body: String) {
+        self.with_editor(|text| text.set_text(body));
     }
 
     fn editor_cycle_type(&mut self) {
@@ -1316,7 +1659,7 @@ impl App {
             return;
         };
 
-        if editor.body.trim().is_empty() {
+        if editor.text.contents().trim().is_empty() {
             self.status_message = Some("annotation body is empty".into());
             return;
         }
@@ -1369,7 +1712,7 @@ impl App {
             Actor::Reviewer,
             EventKind::AnnotationCreated {
                 anchor,
-                body: editor.body.trim().to_string(),
+                body: editor.text.contents().trim().to_string(),
                 annotation_type: editor.annotation_type,
             },
         );
@@ -1385,7 +1728,7 @@ impl App {
             id,
             Actor::Reviewer,
             EventKind::AnnotationEdited {
-                body: Some(editor.body.trim().to_string()),
+                body: Some(editor.text.contents().trim().to_string()),
                 annotation_type: editor.annotation_type,
             },
         );
@@ -1595,6 +1938,15 @@ impl App {
 
 /// Modified-time of the annotation log, or `None` when it does not yet exist or
 /// cannot be stat-ed.
+/// A `path:line` (or `path:start-end`) label for an annotated range.
+fn location_label(path: &RepoRelPath, start: u32, end: u32) -> String {
+    if start == end {
+        format!("{}:{start}", path.0.display())
+    } else {
+        format!("{}:{start}-{end}", path.0.display())
+    }
+}
+
 fn store_mtime(store: &Store) -> Option<SystemTime> {
     std::fs::metadata(store.path())
         .and_then(|meta| meta.modified())
@@ -1851,6 +2203,77 @@ fn gap_context(prev: &Hunk, next: &Hunk, file_lines: Option<&Vec<String>>) -> Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_field_inserts_at_the_cursor() {
+        let mut field = TextField::seeded("helo".into());
+        field.left(); // between 'l' and 'o'
+        field.insert('l');
+        assert_eq!(field.contents(), "hello");
+    }
+
+    #[test]
+    fn text_field_backspace_and_delete_act_at_the_cursor() {
+        let mut field = TextField::seeded("abcd".into());
+        field.left();
+        field.left(); // between 'b' and 'c'
+        field.backspace(); // removes 'b'
+        assert_eq!(field.contents(), "acd");
+        field.delete_forward(); // removes 'c'
+        assert_eq!(field.contents(), "ad");
+    }
+
+    #[test]
+    fn text_field_word_motion_and_delete() {
+        let mut field = TextField::seeded("one two three".into());
+        field.word_left(); // start of "three"
+        assert_eq!(field.cursor_row_col(), (0, 8));
+        field.delete_word_back(); // removes "two " before the cursor
+        assert_eq!(field.contents(), "one three");
+    }
+
+    #[test]
+    fn text_field_vertical_motion_keeps_the_column() {
+        let mut field = TextField::seeded("longline\nx\nanother".into());
+        field.line_start(); // start of "another"
+        for _ in 0..4 {
+            field.right();
+        }
+        assert_eq!(field.cursor_row_col(), (2, 4));
+        field.up(); // "x" is shorter: clamp to its end
+        assert_eq!(field.cursor_row_col(), (1, 1));
+        field.up(); // back onto the long first line at the same column
+        assert_eq!(field.cursor_row_col(), (0, 1));
+    }
+
+    #[test]
+    fn text_field_respects_char_boundaries() {
+        let mut field = TextField::seeded("héllo".into()); // 'é' is two bytes
+        field.line_start();
+        field.right(); // past 'h'
+        field.right(); // past 'é' as one unit, not one byte
+        field.insert('X');
+        assert_eq!(field.contents(), "héXllo");
+    }
+
+    #[test]
+    fn template_round_trips_the_body_and_quotes_the_source() {
+        let seed = EditorSeed {
+            body: "first line\nsecond line".into(),
+            location: "lib.rs:12-13".into(),
+            source_lines: vec!["fn foo() {".into(), "    bar();".into()],
+        };
+        let template = editor_template(&seed);
+
+        assert!(template.contains("# Annotating lib.rs:12-13:"));
+        assert!(template.contains("#   fn foo() {"));
+        assert_eq!(strip_template(&template), seed.body);
+    }
+
+    #[test]
+    fn strip_template_falls_back_to_whole_content_without_a_marker() {
+        assert_eq!(strip_template("just a body\n\n"), "just a body");
+    }
 
     #[test]
     fn keep_in_view_tracks_the_cursor_within_a_window() {
