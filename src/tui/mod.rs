@@ -4,6 +4,7 @@
 //! lives in [`app`] and all drawing in [`ui`], so the interesting parts are
 //! testable with a `ratatui::TestBackend` and without a real terminal.
 
+mod agent;
 mod app;
 mod highlight;
 mod keymap;
@@ -21,6 +22,7 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use ratatui::crossterm::event::{Event, EventStream, KeyEventKind};
 use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
+use agent::AgentEvent;
 use crate::vcs::{Backend, Base, Vcs};
 use highlight::Highlighter;
 
@@ -78,7 +80,12 @@ async fn build_and_run(
         }
     };
 
-    event_loop(terminal, &mut app, &highlighter, receiver).await
+    // Channel the headless agent's streamed events flow through. The app keeps
+    // the sender for the loop's lifetime, so the receiver never closes.
+    let (agent_sender, agent_receiver) = async_channel::unbounded::<AgentEvent>();
+    app.set_agent_channel(agent_sender);
+
+    event_loop(terminal, &mut app, &highlighter, receiver, agent_receiver).await
 }
 
 /// Watch `.margin/` for changes to the annotation log, sending `()` on each so
@@ -107,6 +114,7 @@ fn watch_store(repo_root: &Path, sender: async_channel::Sender<()>) -> Result<Re
 enum Wake {
     Terminal(Option<std::io::Result<Event>>),
     File,
+    Agent(AgentEvent),
 }
 
 /// Drive the UI: redraw, then await the next terminal event or filesystem
@@ -117,6 +125,7 @@ async fn event_loop(
     app: &mut App,
     highlighter: &Highlighter,
     file_changes: async_channel::Receiver<()>,
+    agent_events: async_channel::Receiver<AgentEvent>,
 ) -> Result<()> {
     let mut reader = EventStream::new();
 
@@ -124,11 +133,25 @@ async fn event_loop(
         terminal.draw(|frame| ui::render(frame, app, highlighter))?;
 
         // `EventStream::next` is cancel-safe, so dropping the losing future when
-        // the race resolves loses no input.
-        let wake = future::race(async { Wake::Terminal(reader.next().await) }, async {
-            let _ = file_changes.recv().await;
-            Wake::File
-        })
+        // the race resolves loses no input. `future::race` is binary, so the file
+        // and agent sources are nested into the second arm.
+        let wake = future::race(
+            async { Wake::Terminal(reader.next().await) },
+            future::race(
+                async {
+                    let _ = file_changes.recv().await;
+                    Wake::File
+                },
+                async {
+                    match agent_events.recv().await {
+                        Ok(event) => Wake::Agent(event),
+                        // The sender lives in `app` for the loop's lifetime, so
+                        // this only happens at shutdown; idle out the race.
+                        Err(_) => future::pending().await,
+                    }
+                },
+            ),
+        )
         .await;
 
         match wake {
@@ -146,6 +169,7 @@ async fn event_loop(
             Wake::File => {
                 app.reload_if_changed();
             }
+            Wake::Agent(event) => app.on_agent_event(event),
         }
     }
 
@@ -580,6 +604,64 @@ mod tests {
         assert!(
             !app.reload_if_changed(),
             "a second check with no further write does not reload again"
+        );
+    }
+
+    #[test]
+    fn agent_events_build_the_log_and_clear_running() {
+        use super::agent::{AgentEvent, Outcome};
+
+        let repo = fixture();
+        let mut app = app_with_annotation(repo.path());
+        app.agent.running = true;
+
+        app.on_agent_event(AgentEvent::Started);
+        app.on_agent_event(AgentEvent::ToolUse {
+            name: "Edit".into(),
+            summary: "lib.rs".into(),
+        });
+
+        assert!(app.agent.running, "still running mid-session");
+        assert!(
+            app.agent.log.iter().any(|line| line.contains("Edit")),
+            "tool use is logged: {:?}",
+            app.agent.log
+        );
+
+        app.on_agent_event(AgentEvent::Finished {
+            outcome: Outcome::Ok,
+            summary: "done".into(),
+        });
+
+        assert!(!app.agent.running, "a finish clears the running flag");
+        assert_eq!(app.status_message.as_deref(), Some("agent finished"));
+    }
+
+    #[test]
+    fn toggling_the_agent_log_flips_visibility() {
+        let repo = fixture();
+        let mut app = app_with_annotation(repo.path());
+
+        assert!(!app.agent.log_visible);
+        app.apply(keymap::Action::ToggleAgentLog);
+        assert!(app.agent.log_visible);
+        app.apply(keymap::Action::ToggleAgentLog);
+        assert!(!app.agent.log_visible);
+    }
+
+    #[test]
+    fn spawning_an_agent_without_a_channel_reports_unavailable() {
+        let repo = fixture();
+        let mut app = app_with_annotation(repo.path());
+
+        // No event loop wired the channel, so the trigger is rejected cleanly
+        // rather than launching a process.
+        app.apply(keymap::Action::SpawnAgentForOpen);
+
+        assert!(!app.agent.running);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("agent unavailable in this context")
         );
     }
 

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Trigger a headless coding agent from the TUI: `c` hands the focused annotation
+  to a `claude` session, `C` hands it every open annotation, and `L` toggles a
+  log panel below the diff that streams the session's assistant messages and tool calls. The
+  status line tracks progress and markers flip live as the agent records
+  outcomes; the session is non-blocking. The agent inherits the environment (so
+  `CLAUDE_CONFIG_DIR`/`PATH` reach it), and `MARGIN_AGENT_CMD` overrides the
+  command.
+
 ### Fixed
 
 - The commit list/message divider in the top band now lines up with the

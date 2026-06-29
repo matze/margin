@@ -50,6 +50,9 @@ pub enum Action {
     EditorNewline,
     EditorCycleType,
     EditorSave,
+    SpawnAgentForAnnotation,
+    SpawnAgentForOpen,
+    ToggleAgentLog,
 }
 
 /// Map a key to an action. While `editing`, most keys feed the editor's text
@@ -116,6 +119,9 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('e') => Some(Action::Edit),
         KeyCode::Char('d') => Some(Action::Delete),
         KeyCode::Char('u') => Some(Action::Undo),
+        KeyCode::Char('c') => Some(Action::SpawnAgentForAnnotation),
+        KeyCode::Char('C') => Some(Action::SpawnAgentForOpen),
+        KeyCode::Char('L') => Some(Action::ToggleAgentLog),
         _ => None,
     }
 }
@@ -193,6 +199,26 @@ mod tests {
         assert_eq!(
             map(press(KeyCode::Char('R')), true),
             Some(Action::EditorChar('R'))
+        );
+    }
+
+    #[test]
+    fn agent_keys_map_in_main_but_type_in_editor() {
+        assert_eq!(
+            map(press(KeyCode::Char('c')), false),
+            Some(Action::SpawnAgentForAnnotation)
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('C')), false),
+            Some(Action::SpawnAgentForOpen)
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('L')), false),
+            Some(Action::ToggleAgentLog)
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('c')), true),
+            Some(Action::EditorChar('c'))
         );
     }
 

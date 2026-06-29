@@ -58,6 +58,13 @@ In the diff:
 
 Annotations: `e` edit · `r` reopen · `d` delete · `u` undo · `t` timeline.
 
+Hand a review off to a coding agent without leaving margin: `c` launches a
+headless `claude` on the focused annotation, `C` on every open annotation, and
+`L` toggles a log panel that streams the session's activity below the diff. The status line
+tracks progress; markers flip live as the agent records outcomes (see [Agent
+handoff](#agent-handoff)). The session is non-blocking — keep navigating while
+it runs.
+
 The timeline (`t`) flags when the annotated change has moved under jj: `~`
 amended/rebased, `!` divergent, `×` abandoned.
 
@@ -84,6 +91,15 @@ Under jj, each annotation also reports a `revision_state` — `unchanged`,
 amend/rebase via its change id; `amended` adds `current_commit`. The field is
 omitted on git, which has no stable change identity across history edits, so its
 presence signals jj change tracking is in effect.
+
+The same handoff can be triggered from inside the TUI (`c` / `C`), which spawns
+`claude -p … --output-format stream-json --permission-mode bypassPermissions` in
+the repo and renders its streamed events. The session runs non-interactively —
+it must edit files and run `margin status` without a prompt to answer — so it
+acts on your working tree autonomously; review the result as you would any agent
+run. It inherits the environment, so `CLAUDE_CONFIG_DIR` and `PATH` reach the
+agent and it finds the installed skill; set `MARGIN_AGENT_CMD` to run a different
+binary or a stub.
 
 ## Config
 

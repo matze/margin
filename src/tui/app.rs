@@ -21,6 +21,7 @@ use crate::vcs::{
     Revision, Vcs,
 };
 
+use super::agent::{self, AgentEvent, AgentScope, Outcome};
 use super::keymap::Action;
 use super::theme::{Palette, ThemeMode};
 
@@ -71,6 +72,19 @@ pub enum Overlay {
     None,
     Editor(Editor),
     Timeline(Timeline),
+}
+
+/// State of a headless agent session launched from the TUI, plus its streamed
+/// log. Kept separate from [`Overlay`] so the log can stay visible while diff
+/// navigation continues — the session runs non-blocking.
+#[derive(Default)]
+pub struct AgentSession {
+    /// Whether a session is currently running.
+    pub running: bool,
+    /// The streamed activity log, oldest first.
+    pub log: Vec<String>,
+    /// Whether the log overlay is shown.
+    pub log_visible: bool,
 }
 
 /// The annotation editor (PRD §11 annotation editor), used both to create a new
@@ -241,6 +255,12 @@ pub struct App {
     pub palette: Palette,
     pub status_message: Option<String>,
     pub should_quit: bool,
+
+    /// The headless agent session and its log.
+    pub agent: AgentSession,
+    /// Channel the spawned agent streams events through, wired by the live event
+    /// loop. `None` in tests that drive `App` directly.
+    agent_tx: Option<async_channel::Sender<AgentEvent>>,
 }
 
 impl App {
@@ -290,6 +310,8 @@ impl App {
             palette: Palette::for_mode(theme_mode),
             status_message: None,
             should_quit: false,
+            agent: AgentSession::default(),
+            agent_tx: None,
         };
 
         // With a single commit there is nothing to pick in the sidebar, so start
@@ -311,6 +333,13 @@ impl App {
     /// The annotations across all commits (for the overview).
     pub fn annotations(&self) -> &[ResolvedAnnotation] {
         &self.annotations
+    }
+
+    /// True when any annotation is still open (for the "agent all" hint).
+    pub fn has_open_annotations(&self) -> bool {
+        self.annotations
+            .iter()
+            .any(|resolved| resolved.status == Status::Open)
     }
 
     /// Look up a resolved annotation by id (for the timeline overlay).
@@ -464,6 +493,9 @@ impl App {
             Action::EditorNewline => self.editor_newline(),
             Action::EditorCycleType => self.editor_cycle_type(),
             Action::EditorSave => self.editor_save(),
+            Action::SpawnAgentForAnnotation => self.spawn_agent_for_annotation(),
+            Action::SpawnAgentForOpen => self.spawn_agent(AgentScope::AllOpen),
+            Action::ToggleAgentLog => self.agent.log_visible = !self.agent.log_visible,
         }
     }
 
@@ -1074,6 +1106,93 @@ impl App {
 
         self.reload();
         true
+    }
+
+    /// Wire the channel the live event loop drains for streamed agent events.
+    /// Only the running TUI sets this, so tests build an `App` without one.
+    pub fn set_agent_channel(&mut self, sender: async_channel::Sender<AgentEvent>) {
+        self.agent_tx = Some(sender);
+    }
+
+    /// Hand the focused annotation to a headless agent.
+    fn spawn_agent_for_annotation(&mut self) {
+        let Some(resolved) = self.focused_annotation() else {
+            self.status_message = Some("no annotation here to hand to the agent".into());
+            return;
+        };
+
+        let id = resolved.annotation.id;
+        self.spawn_agent(AgentScope::Focused(id));
+    }
+
+    /// Launch a headless agent over `scope`, streaming its events into the log.
+    /// One session at a time; a second trigger while running is rejected.
+    fn spawn_agent(&mut self, scope: AgentScope) {
+        if self.agent.running {
+            self.status_message = Some("agent already running".into());
+            return;
+        }
+
+        let Some(sender) = self.agent_tx.clone() else {
+            self.status_message = Some("agent unavailable in this context".into());
+            return;
+        };
+
+        let label = match &scope {
+            AgentScope::AllOpen => "all open annotations",
+            AgentScope::Focused(_) => "this annotation",
+        };
+
+        self.agent.running = true;
+        self.agent.log.clear();
+        self.agent.log.push(format!("▶ launching agent for {label}"));
+        self.status_message = Some(format!("agent started · {label}"));
+
+        agent::spawn(self.repo_root.clone(), scope, sender);
+    }
+
+    /// Fold a streamed agent event into the session log and status line. On the
+    /// terminal event the store is reloaded so the agent's final `margin status`
+    /// writes show even if the file watcher missed the last one.
+    pub fn on_agent_event(&mut self, event: AgentEvent) {
+        match event {
+            AgentEvent::Started => {
+                self.agent.log.push("● session started".into());
+                self.status_message = Some("agent: working…".into());
+            }
+            AgentEvent::Assistant(text) => {
+                let first = text.lines().next().unwrap_or("").to_string();
+                self.agent.log.push(format!("  {text}"));
+                self.status_message = Some(format!("agent: {first}"));
+            }
+            AgentEvent::ToolUse { name, summary } => {
+                let line = match summary.is_empty() {
+                    true => format!("⚙ {name}"),
+                    false => format!("⚙ {name}: {summary}"),
+                };
+                self.status_message = Some(format!("agent: {line}"));
+                self.agent.log.push(line);
+            }
+            AgentEvent::Finished { outcome, summary } => {
+                self.agent.running = false;
+                let mark = match outcome {
+                    Outcome::Ok => '✓',
+                    Outcome::Error => '✗',
+                };
+                self.agent.log.push(format!("{mark} {summary}"));
+                self.reload();
+                self.status_message = Some(match outcome {
+                    Outcome::Ok => "agent finished".into(),
+                    Outcome::Error => format!("agent finished with errors: {summary}"),
+                });
+            }
+            AgentEvent::Failed(message) => {
+                self.agent.running = false;
+                self.agent.log.push(format!("✗ {message}"));
+                self.reload();
+                self.status_message = Some(format!("agent failed: {message}"));
+            }
+        }
     }
 
     /// The annotation the next command acts on: the timeline's annotation when

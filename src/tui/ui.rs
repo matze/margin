@@ -45,11 +45,13 @@ const BAND_HEIGHT: u16 = 12;
 pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
     let area = frame.area();
     let band = band_height(app, area.height);
+    let agent_log = agent_log_height(app, area.height);
 
     let rows = Layout::vertical([
         Constraint::Length(band),
         Constraint::Length(1),
         Constraint::Min(0),
+        Constraint::Length(agent_log),
         Constraint::Length(1),
     ])
     .split(area);
@@ -57,7 +59,7 @@ pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
     render_band(frame, app, rows[0]);
     render_band_divider(frame, app, rows[1]);
     render_diff(frame, app, highlighter, rows[2]);
-    render_help(frame, app, rows[3]);
+    render_help(frame, app, rows[4]);
 
     match &app.overlay {
         // The editor renders inline within the diff (see build_attachments).
@@ -65,6 +67,49 @@ pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
         Overlay::Timeline(_) => render_timeline(frame, app, rows[2]),
         Overlay::None => {}
     }
+
+    if app.agent.log_visible {
+        render_agent_log(frame, app, rows[3]);
+    }
+}
+
+/// The height the agent-log row claims when visible: capped at
+/// [`AGENT_LOG_HEIGHT`] and never more than half the screen, else zero so the
+/// diff keeps the full area.
+fn agent_log_height(app: &App, total: u16) -> u16 {
+    match app.agent.log_visible {
+        true => AGENT_LOG_HEIGHT.min(total / 2).max(3),
+        false => 0,
+    }
+}
+
+/// The headless-agent log: a bordered panel in its own row below the diff and
+/// above the help bar, showing the most recent streamed lines. The diff stays
+/// navigable beside it (non-blocking session).
+fn render_agent_log(frame: &mut Frame, app: &App, rect: Rect) {
+    frame.render_widget(Clear, rect);
+
+    let title = match app.agent.running {
+        true => " agent · running ".to_string(),
+        false => " agent · idle ".to_string(),
+    };
+    let block = modal_block(title, app.palette);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+
+    // Show the tail that fits, oldest of the visible window first.
+    let visible = inner.height as usize;
+    let lines: Vec<Line> = app
+        .agent
+        .log
+        .iter()
+        .rev()
+        .take(visible)
+        .rev()
+        .map(|line| Line::from(line.clone()))
+        .collect();
+
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 /// The band height: one header row plus the active view's content, so the band
@@ -1487,6 +1532,7 @@ fn help_line(app: &App) -> Line<'static> {
             ("t", "timeline"),
             ("e", "edit"),
             ("d", "delete"),
+            ("c", "agent"),
             ("tab", "diff"),
             ("⇧tab", "view"),
         ],
@@ -1519,9 +1565,18 @@ fn diff_help_line(app: &App) -> Line<'static> {
         hints.push(("d", "delete"));
     }
 
+    if app.annotation_at_cursor().is_some() {
+        hints.push(("c", "agent"));
+    }
+
+    hints.extend([("u", "undo"), ("t", "timeline")]);
+
+    if app.has_open_annotations() {
+        hints.push(("C", "agent all"));
+    }
+
     hints.extend([
-        ("u", "undo"),
-        ("t", "timeline"),
+        ("L", "log"),
         ("tab", "band"),
         ("⇧tab", "view"),
         ("q", "quit"),
@@ -1752,6 +1807,9 @@ fn revision_state_line(state: &RevisionState, palette: Palette) -> Option<Line<'
 
 /// The timeline popup's reading width before it is capped to the diff area.
 const TIMELINE_WIDTH: u16 = 96;
+
+/// The agent log row's maximum height before it is capped to half the screen.
+const AGENT_LOG_HEIGHT: u16 = 16;
 
 /// The connector prefix carried by every line of an event's detail, drawn so the
 /// bar lines up under the event's bullet and the timeline reads as one thread.
