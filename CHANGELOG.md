@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stayed open. The same reload also runs automatically as soon as the annotation
   log changes on disk.
 
+### Fixed
+
+- The selected commit/file/annotation in the top band no longer keeps the
+  cursor background tint once focus moves to the diff; an unfocused band now
+  marks its selection with bold alone, matching the diff cursor.
+
 ### Changed
 
 - The TUI input loop is now async and fully event-driven (crossterm

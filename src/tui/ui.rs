@@ -113,7 +113,7 @@ fn render_band(frame: &mut Frame, app: &mut App, area: Rect) {
                 frame,
                 area,
                 &format!("files · {}", app.changed_files().len()),
-                file_list_lines(app, Color::Reset),
+                file_list_lines(app, Color::Reset, focused),
                 focused,
                 app.palette,
                 app.file_top as u16,
@@ -126,7 +126,7 @@ fn render_band(frame: &mut Frame, app: &mut App, area: Rect) {
                 frame,
                 area,
                 &format!("annotations · {}", app.overview_annotations().len()),
-                annotation_list_lines(app, app.annotation_cursor, Color::Reset),
+                annotation_list_lines(app, app.annotation_cursor, Color::Reset, focused),
                 focused,
                 app.palette,
                 app.annotation_top as u16,
@@ -161,7 +161,7 @@ fn render_commit_band(
     render_list_body(
         frame,
         body_of(columns[0]),
-        commit_list_lines(app, Color::Reset),
+        commit_list_lines(app, Color::Reset, focused),
         app.commit_top as u16,
     );
     render_message_body(frame, app, body_of(columns[2]));
@@ -223,9 +223,23 @@ fn render_list_body(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>, sc
     );
 }
 
+/// Background and weight for a band list row. The selected row carries the
+/// cursor tint only while its pane is focused; unfocused it keeps the bold alone
+/// (mirroring the diff cursor, which also tints only when focused) so the
+/// selection stays legible without competing with the focused pane.
+fn row_style(selected: bool, focused: bool, pane_bg: Color, palette: Palette) -> Style {
+    match (selected, focused) {
+        (true, true) => Style::default()
+            .bg(palette.cursor_bg)
+            .add_modifier(Modifier::BOLD),
+        (true, false) => Style::default().bg(pane_bg).add_modifier(Modifier::BOLD),
+        (false, _) => Style::default().bg(pane_bg),
+    }
+}
+
 /// The changed-file panel: one row per file in the loaded commit, with its
 /// change glyph and repo-relative path.
-fn file_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
+fn file_list_lines(app: &App, pane_bg: Color, focused: bool) -> Vec<Line<'static>> {
     let files = app.changed_files();
 
     if files.is_empty() {
@@ -245,13 +259,7 @@ fn file_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
                 .unwrap_or_else(|| "<unknown>".into());
 
             let selected = index == app.file_cursor;
-            let base_style = if selected {
-                Style::default()
-                    .bg(app.palette.cursor_bg)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().bg(pane_bg)
-            };
+            let base_style = row_style(selected, focused, pane_bg, app.palette);
 
             Line::from(vec![
                 Span::styled(
@@ -273,7 +281,7 @@ fn commit_list_title(app: &App) -> String {
     }
 }
 
-fn commit_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
+fn commit_list_lines(app: &App, pane_bg: Color, focused: bool) -> Vec<Line<'static>> {
     app.revisions()
         .iter()
         .enumerate()
@@ -283,13 +291,7 @@ fn commit_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
             let short: String = revision.id.0.chars().take(7).collect();
 
             let selected = index == app.commit_cursor;
-            let base_style = if selected {
-                Style::default()
-                    .bg(app.palette.cursor_bg)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().bg(pane_bg)
-            };
+            let base_style = row_style(selected, focused, pane_bg, app.palette);
 
             Line::from(vec![
                 Span::styled(
@@ -305,7 +307,12 @@ fn commit_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
         .collect()
 }
 
-fn annotation_list_lines(app: &App, cursor: usize, pane_bg: Color) -> Vec<Line<'static>> {
+fn annotation_list_lines(
+    app: &App,
+    cursor: usize,
+    pane_bg: Color,
+    focused: bool,
+) -> Vec<Line<'static>> {
     let annotations = app.overview_annotations();
 
     if annotations.is_empty() {
@@ -321,13 +328,7 @@ fn annotation_list_lines(app: &App, cursor: usize, pane_bg: Color) -> Vec<Line<'
         .map(|(index, resolved)| {
             let marker = Marker::from_status(resolved.status);
             let selected = index == cursor;
-            let base_style = if selected {
-                Style::default()
-                    .bg(app.palette.cursor_bg)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().bg(pane_bg)
-            };
+            let base_style = row_style(selected, focused, pane_bg, app.palette);
 
             let annotation = &resolved.annotation;
             let body = annotation.body.lines().next().unwrap_or("");
