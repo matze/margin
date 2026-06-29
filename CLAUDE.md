@@ -30,6 +30,9 @@ commit's diff; a coding agent consumes the annotations through the `margin` CLI
 - `README.md` documents the CLI flags/subcommands (`cli.rs`) and TUI keys
   (`keymap.rs`). It drifts easily — when you change either, update the README's
   Usage/Navigation/Agent-handoff sections in the same change.
+- Every user-facing change (feature, fix, behavior/UI change) gets a
+  `CHANGELOG.md` entry under `## [Unreleased]` in the same commit, using the
+  Keep a Changelog sections (`Added`/`Changed`/`Fixed`/...).
 
 ## Verify
 
