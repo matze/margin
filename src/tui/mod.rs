@@ -838,6 +838,60 @@ mod tests {
         assert!(rendered.contains("created"), "{rendered}");
     }
 
+    #[test]
+    fn timeline_popup_does_not_cover_the_annotation() {
+        let repo = fixture();
+        let mut app = app_with_annotation(repo.path());
+
+        // The diff cursor still sits on the annotated line after saving.
+        app.apply(keymap::Action::Timeline);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(110, 30)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        let rendered = terminal.backend().to_string();
+        assert!(rendered.contains("timeline"), "{rendered}");
+        // The popup anchors beside the annotation, so the annotated source line
+        // stays visible rather than being covered.
+        assert!(rendered.contains("fn a() {}"), "{rendered}");
+    }
+
+    #[test]
+    fn timeline_renders_a_multiline_body() {
+        let repo = fixture();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+
+        app.apply(keymap::Action::SelectCommit);
+        app.apply(keymap::Action::Down);
+        app.apply(keymap::Action::Down);
+        app.apply(keymap::Action::Annotate);
+        for c in "first line".chars() {
+            app.apply(keymap::Action::EditorChar(c));
+        }
+        app.apply(keymap::Action::EditorNewline);
+        for c in "second line".chars() {
+            app.apply(keymap::Action::EditorChar(c));
+        }
+        app.apply(keymap::Action::EditorSave);
+        app.apply(keymap::Action::Timeline);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(110, 30)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        let rendered = terminal.backend().to_string();
+        // The type label sits in the heading and the second body line renders as
+        // its own connector row.
+        assert!(rendered.contains("note"), "{rendered}");
+        assert!(rendered.contains("second line"), "{rendered}");
+    }
+
     /// A repo whose feature commit modifies one line (apple -> banana) and adds
     /// a brand-new line, so the diff has a paired change and a pure addition.
     fn modification_fixture() -> tempfile::TempDir {

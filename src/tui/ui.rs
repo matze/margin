@@ -8,13 +8,13 @@
 //! track the terminal theme.
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Flex, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 
-use crate::export::{status_label, type_label};
-use crate::model::{Event, EventKind, Side};
+use crate::export::type_label;
+use crate::model::{Anchor, Event, EventKind, Side};
 use crate::review::{ResolvedAnnotation, RevisionState};
 use crate::vcs::{ChangeKind, DiffLine, DiffLineKind, ListingSource};
 
@@ -62,7 +62,7 @@ pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
     match &app.overlay {
         // The editor renders inline within the diff (see build_attachments).
         Overlay::Editor(_) => {}
-        Overlay::Timeline(_) => render_timeline(frame, app, area),
+        Overlay::Timeline(_) => render_timeline(frame, app, rows[2]),
         Overlay::None => {}
     }
 }
@@ -789,10 +789,12 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
 
     if let (Overlay::Editor(editor), Some(row)) = (&app.overlay, editor_anchor_row(app)) {
         let layout = block_layout(app, width, editor_side(app, editor));
-        attachments
-            .entry(row)
-            .or_default()
-            .extend(editor_block(editor, app.palette, width, &layout));
+        attachments.entry(row).or_default().extend(editor_block(
+            editor,
+            app.palette,
+            width,
+            &layout,
+        ));
     }
 
     attachments
@@ -1557,7 +1559,7 @@ fn hint_spans(app: &App, hints: &[(&str, &str)], emphasize: Option<&str>) -> Vec
     spans
 }
 
-fn render_timeline(frame: &mut Frame, app: &App, area: Rect) {
+fn render_timeline(frame: &mut Frame, app: &App, diff_area: Rect) {
     let Overlay::Timeline(timeline) = &app.overlay else {
         return;
     };
@@ -1566,54 +1568,160 @@ fn render_timeline(frame: &mut Frame, app: &App, area: Rect) {
     };
     let annotation = &resolved.annotation;
 
-    let rect = centered(area, 80, 70);
-    frame.render_widget(Clear, rect);
-
-    let short_rev: String = annotation.anchor.revision_id.0.chars().take(7).collect();
-    let side = match annotation.anchor.side {
-        Side::New => "new",
-        Side::Old => "old",
-    };
+    let kind = annotation.annotation_type.map(type_label).unwrap_or("note");
     let title = format!(
-        " timeline · {}:{} (@ {short_rev}, {side}) ",
+        " timeline · {}:{} · {kind} ",
         annotation.anchor.file.0.display(),
         annotation.anchor.start_line.get()
     );
+
+    let width = timeline_width(diff_area);
+    let text_width = (width as usize).saturating_sub(2 + DETAIL_PREFIX.chars().count());
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            format!("\"{}\"", annotation.body.lines().next().unwrap_or("")),
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+
+    // Newest first, with a connecting thread between events; the oldest event
+    // (the last shown) closes the thread.
+    let events = &annotation.timeline;
+
+    for (index, event) in events.iter().rev().enumerate() {
+        let is_oldest = index + 1 == events.len();
+        lines.extend(event_lines(event, app.palette, text_width, is_oldest));
+    }
+
+    if let Some(line) = revision_state_line(&resolved.revision_state, app.palette) {
+        lines.push(Line::from(""));
+        lines.push(line);
+    }
+
+    let rect = timeline_rect(app, diff_area, width, lines.len());
+    frame.render_widget(Clear, rect);
+
     let block = modal_block(title, app.palette);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
 
-    let kind = annotation.annotation_type.map(type_label).unwrap_or("note");
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled(
-                format!("\"{}\"", annotation.body.lines().next().unwrap_or("")),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("   type: {kind}"),
-                Style::default().fg(app.palette.gutter_fg),
-            ),
-        ]),
-        Line::from(""),
-    ];
-
-    for event in &annotation.timeline {
-        lines.extend(event_lines(event, app.palette));
-    }
-
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        format!("status (derived): {}", status_label(resolved.status)),
-        Style::default().add_modifier(Modifier::BOLD),
-    )));
-
-    if let Some(line) = revision_state_line(&resolved.revision_state, app.palette) {
-        lines.push(line);
-    }
-
     let view: Vec<Line> = lines.into_iter().skip(timeline.scroll).collect();
     frame.render_widget(Paragraph::new(view).wrap(Wrap { trim: false }), inner);
+}
+
+/// The timeline popup width: a comfortable reading column for replies, capped to
+/// the diff area so it stays narrower than the full pane.
+fn timeline_width(diff_area: Rect) -> u16 {
+    diff_area.width.clamp(1, TIMELINE_WIDTH)
+}
+
+/// The column within the diff body where an annotation's text begins, so the
+/// popup can align under the annotation's content rather than the line gutter.
+fn annotation_text_column(app: &App, diff_area: Rect, side: Side) -> u16 {
+    match (app.view, side) {
+        (DiffView::Unified, _) => CONTENT_INDENT as u16,
+        (DiffView::Split, Side::Old) => SPLIT_CONTENT_INDENT as u16,
+        (DiffView::Split, Side::New) => {
+            diff_area.width.saturating_sub(1) / 2 + 1 + SPLIT_CONTENT_INDENT as u16
+        }
+    }
+}
+
+/// The rectangle for the timeline popup: anchored to the annotation's left edge
+/// and placed directly above or below it — whichever side of the diff has more
+/// room — so it never covers the annotation. Falls back to centering within the
+/// diff area when the annotation isn't on screen or neither side has room.
+fn timeline_rect(app: &App, diff_area: Rect, width: u16, content_lines: usize) -> Rect {
+    let desired = (content_lines as u16).saturating_add(2);
+
+    let centered = || {
+        let height = desired.min(diff_area.height).max(3);
+        Rect {
+            x: diff_area.x + diff_area.width.saturating_sub(width) / 2,
+            y: diff_area.y + diff_area.height.saturating_sub(height) / 2,
+            width,
+            height,
+        }
+    };
+
+    let Overlay::Timeline(timeline) = &app.overlay else {
+        return centered();
+    };
+    let Some(anchor) = app
+        .annotation(timeline.annotation_id)
+        .map(|resolved| resolved.annotation.anchor.clone())
+    else {
+        return centered();
+    };
+    let Some((start_y, end_y)) = annotation_screen_span(app, &anchor, diff_area.width as usize)
+    else {
+        return centered();
+    };
+
+    let start_y = start_y.min(diff_area.height);
+    let end_y = end_y.min(diff_area.height);
+    let space_above = start_y;
+    let space_below = diff_area.height.saturating_sub(end_y);
+
+    let (y, height) = if space_below >= space_above {
+        (diff_area.y + end_y, desired.min(space_below))
+    } else {
+        let height = desired.min(space_above);
+        (diff_area.y + start_y - height, height)
+    };
+
+    if height < 3 {
+        return centered();
+    }
+
+    // Align under the annotation's text, clamped so the popup stays in the diff.
+    let indent = annotation_text_column(app, diff_area, anchor.side);
+    let max_x = diff_area.right().saturating_sub(width);
+    let x = (diff_area.x + indent).min(max_x).max(diff_area.x);
+
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
+/// The vertical span the annotation occupies within the diff body, in screen
+/// lines measured from its top: `(start_y, end_y)`, where `end_y` includes the
+/// inline annotation block hanging beneath the range. `None` when the
+/// annotation's lines aren't visible below the current scroll top.
+fn annotation_screen_span(app: &App, anchor: &Anchor, width: usize) -> Option<(u16, u16)> {
+    let file_index = app.file_index_of(&anchor.file)?;
+    let start_row = row_of_line(app, file_index, anchor.side, anchor.start_line.get())?;
+    let end_row = row_of_line(app, file_index, anchor.side, anchor.end_line.get())?;
+
+    let screen = screen_rows(app);
+    let attachments = build_attachments(app, width);
+    let top = screen_index_of(&screen, app.diff_top);
+
+    let mut offset = 0usize;
+    let mut start = None;
+    let mut end = None;
+
+    for screen_row in &screen[top..] {
+        let height = screen_height(screen_row, &attachments);
+
+        if start.is_none() && screen_row.covers(start_row) {
+            start = Some(offset);
+        }
+
+        if screen_row.covers(end_row) {
+            end = Some(offset + height);
+        }
+
+        offset += height;
+    }
+
+    let cap = |value: usize| value.min(u16::MAX as usize) as u16;
+    Some((cap(start?), cap(end?)))
 }
 
 /// A line flagging that the anchored change moved in history (amended/rebased),
@@ -1641,32 +1749,98 @@ fn revision_state_line(state: &RevisionState, palette: Palette) -> Option<Line<'
     )))
 }
 
-/// Render one event as a header line plus an optional indented detail line.
-fn event_lines(event: &Event, palette: Palette) -> Vec<Line<'static>> {
+/// The timeline popup's reading width before it is capped to the diff area.
+const TIMELINE_WIDTH: u16 = 96;
+
+/// The connector prefix carried by every line of an event's detail, drawn so the
+/// bar lines up under the event's bullet and the timeline reads as one thread.
+const DETAIL_PREFIX: &str = "│ ";
+
+/// Render one event as a bullet header line plus its detail, word-wrapped to
+/// `text_width`. The bullet and the detail's connector bar share the leftmost
+/// column so consecutive events read as one connected thread; unless this is the
+/// oldest event, the thread is carried on to the next with a trailing bar.
+fn event_lines(
+    event: &Event,
+    palette: Palette,
+    text_width: usize,
+    is_oldest: bool,
+) -> Vec<Line<'static>> {
     let actor = match event.actor {
         crate::model::Actor::Reviewer => "reviewer",
         crate::model::Actor::Agent => "agent",
     };
     let (label, detail) = describe_event(&event.kind);
+    let thread = Style::default().fg(palette.gutter_fg);
 
     let mut lines = vec![Line::from(vec![
-        Span::styled("● ", Style::default().fg(palette.marker_open)),
-        Span::styled(
-            format!("{}  ", format_timestamp(event)),
-            Style::default().fg(palette.gutter_fg),
-        ),
-        Span::styled(
-            format!("{actor:<9}"),
-            Style::default().fg(palette.default_fg),
-        ),
+        Span::styled("● ", thread),
+        Span::styled(format!("{}  ", format_timestamp(event)), thread),
+        Span::styled(format!("{actor:<8}  "), thread),
         Span::styled(label, Style::default().add_modifier(Modifier::BOLD)),
     ])];
 
     if let Some(detail) = detail {
-        lines.push(Line::from(Span::styled(
-            format!("│   {detail}"),
-            Style::default().fg(palette.gutter_fg),
-        )));
+        for physical in wrap_text(&detail, text_width) {
+            lines.push(Line::from(vec![
+                Span::styled(DETAIL_PREFIX, thread),
+                Span::styled(physical, Style::default().fg(palette.default_fg)),
+            ]));
+        }
+    }
+
+    if !is_oldest {
+        lines.push(Line::from(Span::styled("│", thread)));
+    }
+
+    lines
+}
+
+/// Greedy word-wrap `text` to `width` columns, breaking words longer than the
+/// width and preserving blank lines between paragraphs. Always returns at least
+/// one line.
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines = Vec::new();
+
+    for paragraph in text.split('\n') {
+        let mut current = String::new();
+
+        for word in paragraph.split_whitespace() {
+            if word.chars().count() > width {
+                if !current.is_empty() {
+                    lines.push(std::mem::take(&mut current));
+                }
+
+                let mut chunk = String::new();
+
+                for ch in word.chars() {
+                    if chunk.chars().count() == width {
+                        lines.push(std::mem::take(&mut chunk));
+                    }
+
+                    chunk.push(ch);
+                }
+
+                current = chunk;
+                continue;
+            }
+
+            let separator = usize::from(!current.is_empty());
+
+            if current.chars().count() + separator + word.chars().count() > width {
+                lines.push(std::mem::take(&mut current));
+                current = word.to_string();
+            } else {
+                if !current.is_empty() {
+                    current.push(' ');
+                }
+
+                current.push_str(word);
+            }
+        }
+
+        lines.push(current);
     }
 
     lines
@@ -1730,10 +1904,12 @@ fn render_divider(frame: &mut Frame, area: Rect, palette: Palette) {
 }
 
 /// A bordered block for a modal overlay (popups keep a border; main panes do not).
+/// The border uses the muted gutter color so it reads as quiet chrome around the
+/// content rather than a loud frame.
 fn modal_block(title: String, palette: Palette) -> Block<'static> {
     Block::bordered()
         .title(title)
-        .border_style(Style::default().fg(palette.marker_open))
+        .border_style(Style::default().fg(palette.gutter_fg))
 }
 
 /// The gutter glyph for an annotated line: a top hook on the first line, then a
@@ -1772,13 +1948,33 @@ fn change_color(change: ChangeKind, palette: Palette) -> Color {
     }
 }
 
-/// A rectangle centered in `area` at the given percentage of its size.
-fn centered(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
-    let [horizontal] = Layout::horizontal([Constraint::Percentage(percent_x)])
-        .flex(Flex::Center)
-        .areas(area);
-    let [rect] = Layout::vertical([Constraint::Percentage(percent_y)])
-        .flex(Flex::Center)
-        .areas(horizontal);
-    rect
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_text_breaks_long_replies_into_multiple_lines() {
+        let wrapped = wrap_text("the quick brown fox jumps", 10);
+
+        assert!(wrapped.len() > 1, "a long reply wraps: {wrapped:?}");
+        assert!(
+            wrapped.iter().all(|line| line.chars().count() <= 10),
+            "every wrapped line fits the width: {wrapped:?}"
+        );
+    }
+
+    #[test]
+    fn wrap_text_preserves_explicit_line_breaks() {
+        assert_eq!(wrap_text("first\nsecond", 40), vec!["first", "second"]);
+    }
+
+    #[test]
+    fn wrap_text_hard_breaks_a_word_longer_than_the_width() {
+        assert_eq!(wrap_text("abcdefgh", 3), vec!["abc", "def", "gh"]);
+    }
+
+    #[test]
+    fn wrap_text_always_returns_a_line() {
+        assert_eq!(wrap_text("", 10), vec![""]);
+    }
 }

@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The timeline popup (`t`) now aligns under the annotation's text and opens
+  directly above or below the annotated line(s) instead of covering them. Events
+  read newest-first as one connected thread (subdued bullets joined by a
+  continuing bar), long replies word-wrap with the bar carried down every line,
+  and the border is muted.
 - The TUI input loop is now async and fully event-driven (crossterm
   `event-stream` + `notify` on a `futures-lite` executor): it reacts to key
   input and filesystem changes via wakers instead of polling on a timer, so it
