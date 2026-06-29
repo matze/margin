@@ -13,17 +13,16 @@ mod ui;
 pub use app::App;
 pub use theme::ThemeMode;
 
-use std::time::Duration;
+use std::path::Path;
 
 use anyhow::Result;
-use ratatui::crossterm::event::{self, Event, KeyEventKind};
+use futures_lite::{StreamExt, future};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use ratatui::crossterm::event::{Event, EventStream, KeyEventKind};
 use ratatui::crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
-use crate::vcs::{Backend, Base};
+use crate::vcs::{Backend, Base, Vcs};
 use highlight::Highlighter;
-
-/// Poll interval; bounds how long a draw can lag a terminal resize.
-const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Launch the TUI against `backend`, listing commits per `base`. `theme` is the
 /// explicit `--theme`/config override, if any; otherwise the terminal is queried.
@@ -34,7 +33,7 @@ pub fn run(backend: Backend, base: Base, theme: Option<ThemeMode>) -> Result<()>
     let theme = resolve_theme(theme);
 
     let mut terminal = ratatui::init();
-    let result = build_and_run(&mut terminal, backend, base, theme);
+    let result = future::block_on(build_and_run(&mut terminal, backend, base, theme));
     ratatui::restore();
     result
 }
@@ -57,36 +56,95 @@ fn resolve_theme(explicit: Option<ThemeMode>) -> ThemeMode {
     theme
 }
 
-fn build_and_run(
+async fn build_and_run(
     terminal: &mut ratatui::DefaultTerminal,
     backend: Backend,
     base: Base,
     theme: ThemeMode,
 ) -> Result<()> {
+    let repo_root = backend.root().to_path_buf();
     let mut app = App::new(backend, base, theme)?;
     let highlighter = Highlighter::new(theme, app.palette.default_fg);
-    event_loop(terminal, &mut app, &highlighter)
+
+    // Watch the annotation log so an agent's out-of-band writes reload live. The
+    // watcher must outlive the loop; dropping it stops the watch. A failed setup
+    // degrades to manual reload (`R`) rather than aborting the TUI.
+    let (sender, receiver) = async_channel::unbounded::<()>();
+    let _watcher = match watch_store(&repo_root, sender) {
+        Ok(watcher) => Some(watcher),
+        Err(error) => {
+            app.status_message = Some(format!("live reload off: {error}"));
+            None
+        }
+    };
+
+    event_loop(terminal, &mut app, &highlighter, receiver).await
 }
 
-fn event_loop(
+/// Watch `.margin/` for changes to the annotation log, sending `()` on each so
+/// the event loop can reload. Watches the directory (the log itself may not
+/// exist yet) and filters to the log filename.
+fn watch_store(repo_root: &Path, sender: async_channel::Sender<()>) -> Result<RecommendedWatcher> {
+    let dir = repo_root.join(".margin");
+    std::fs::create_dir_all(&dir)?;
+
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if let Ok(event) = event
+            && event.paths.iter().any(|p| p.ends_with("annotations.ndjson"))
+        {
+            let _ = sender.try_send(());
+        }
+    })?;
+
+    watcher.watch(&dir, RecursiveMode::NonRecursive)?;
+    Ok(watcher)
+}
+
+/// Whichever event source fired the wake-up.
+enum Wake {
+    Terminal(Option<std::io::Result<Event>>),
+    File,
+}
+
+/// Drive the UI: redraw, then await the next terminal event or filesystem
+/// notification, whichever comes first. No polling — both sources wake the task
+/// via their own wakers.
+async fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
     app: &mut App,
     highlighter: &Highlighter,
+    file_changes: async_channel::Receiver<()>,
 ) -> Result<()> {
+    let mut reader = EventStream::new();
+
     while !app.should_quit {
         terminal.draw(|frame| ui::render(frame, app, highlighter))?;
 
-        if !event::poll(POLL_INTERVAL)? {
-            continue;
-        }
+        // `EventStream::next` is cancel-safe, so dropping the losing future when
+        // the race resolves loses no input.
+        let wake = future::race(
+            async { Wake::Terminal(reader.next().await) },
+            async {
+                let _ = file_changes.recv().await;
+                Wake::File
+            },
+        )
+        .await;
 
-        if let Event::Key(key) = event::read()? {
-            if key.kind != KeyEventKind::Press {
-                continue;
+        match wake {
+            Wake::Terminal(Some(Ok(Event::Key(key)))) => {
+                if key.kind == KeyEventKind::Press
+                    && let Some(action) = keymap::map(key, app.is_editing())
+                {
+                    app.apply(action);
+                }
             }
-
-            if let Some(action) = keymap::map(key, app.is_editing()) {
-                app.apply(action);
+            // Resize and other events fall through to the redraw at the loop top.
+            Wake::Terminal(Some(Ok(_))) => {}
+            Wake::Terminal(Some(Err(error))) => return Err(error.into()),
+            Wake::Terminal(None) => break,
+            Wake::File => {
+                app.reload_if_changed();
             }
         }
     }
@@ -440,6 +498,92 @@ mod tests {
         }
         app.apply(keymap::Action::EditorSave);
         app
+    }
+
+    #[test]
+    fn reload_reflects_an_out_of_band_status_write() {
+        use super::app::Marker;
+        use crate::model::{Actor, Event, EventKind, Status};
+        use crate::store::Store;
+
+        let repo = fixture();
+        let mut app = app_with_annotation(repo.path());
+        let resolved = &app.annotations()[0];
+        let id = resolved.id();
+        let anchor = &resolved.annotation.anchor;
+        let line = anchor.start_line.get();
+        let file_index = app.file_index_of(&anchor.file).unwrap();
+        let side = anchor.side;
+
+        assert_eq!(app.annotations()[0].status, Status::Open);
+        assert_eq!(
+            app.line_marker(file_index, side, line).map(|m| m.marker),
+            Some(Marker::Open)
+        );
+
+        // The agent resolves it in a separate process.
+        Store::open(repo.path())
+            .append(&Event::now(
+                id,
+                Actor::Agent,
+                EventKind::AgentResolved { reply: None },
+            ))
+            .unwrap();
+
+        app.reload();
+
+        assert_eq!(app.annotations()[0].status, Status::Resolved);
+        assert_eq!(
+            app.line_marker(file_index, side, line).map(|m| m.marker),
+            Some(Marker::Resolved),
+            "the gutter marker reflects the out-of-band resolution"
+        );
+    }
+
+    #[test]
+    fn reload_keeps_the_cursor_on_the_same_commit() {
+        let repo = fixture();
+        let mut app = app_with_annotation(repo.path());
+        let before = app.current_revision().unwrap().id.clone();
+
+        app.reload();
+
+        assert_eq!(
+            app.current_revision().unwrap().id,
+            before,
+            "reload re-lists without moving off the selected commit"
+        );
+    }
+
+    #[test]
+    fn reload_if_changed_only_fires_on_a_write() {
+        use crate::model::{Actor, Event, EventKind};
+        use crate::store::Store;
+
+        let repo = fixture();
+        let mut app = app_with_annotation(repo.path());
+
+        assert!(
+            !app.reload_if_changed(),
+            "no write means no reload"
+        );
+
+        Store::open(repo.path())
+            .append(&Event::now(
+                app.annotations()[0].id(),
+                Actor::Agent,
+                EventKind::AgentResolved { reply: None },
+            ))
+            .unwrap();
+
+        assert!(
+            app.reload_if_changed(),
+            "an out-of-band write triggers a reload"
+        );
+        assert!(
+            !app.reload_if_changed(),
+            "a second check with no further write does not reload again"
+        );
     }
 
     #[test]

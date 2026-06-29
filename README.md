@@ -35,7 +35,12 @@ diff to that file, and `Ctrl-u` / `Ctrl-d` scroll the commit message.
 | `Tab` | toggle focus between the band and the diff |
 | `Shift-Tab` | cycle the band view: commits → files → annotations |
 | `Enter` | open the commit / jump to the file or annotation / annotate the line |
+| `R` | reload revisions, diff, and annotations from disk |
 | `q` | quit |
+
+`R` reloads the state an agent wrote while margin stayed open (resolutions,
+edits, new commits); the same reload also runs automatically as soon as the
+annotation log changes on disk.
 
 In the diff:
 

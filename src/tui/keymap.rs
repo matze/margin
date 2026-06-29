@@ -37,6 +37,8 @@ pub enum Action {
     ViewAnnotations,
     Timeline,
     Reopen,
+    /// Re-read revisions, diff, and the annotation log from disk.
+    Reload,
     Edit,
     Delete,
     Undo,
@@ -106,6 +108,7 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('a') => Some(Action::Annotate),
         KeyCode::Char('t') => Some(Action::Timeline),
         KeyCode::Char('r') => Some(Action::Reopen),
+        KeyCode::Char('R') => Some(Action::Reload),
         KeyCode::Char('e') => Some(Action::Edit),
         KeyCode::Char('d') => Some(Action::Delete),
         KeyCode::Char('u') => Some(Action::Undo),
@@ -166,6 +169,15 @@ mod tests {
 
         let save = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL);
         assert_eq!(map(save, true), Some(Action::EditorSave));
+    }
+
+    #[test]
+    fn shift_r_reloads_but_types_in_editor() {
+        assert_eq!(map(press(KeyCode::Char('R')), false), Some(Action::Reload));
+        assert_eq!(
+            map(press(KeyCode::Char('R')), true),
+            Some(Action::EditorChar('R'))
+        );
     }
 
     #[test]

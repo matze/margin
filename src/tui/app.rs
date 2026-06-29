@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 use crate::anchor::{CONTEXT_LINES, Resolution, capture};
 use crate::model::{
@@ -188,6 +189,12 @@ pub struct App {
     backend: Backend,
     repo_root: PathBuf,
     store: Store,
+    /// The base the revision list was built from, kept so [`App::reload`] can
+    /// re-list after the working copy changes out of band.
+    base: Base,
+    /// Modified-time of the annotation log at the last [`App::reload_if_changed`]
+    /// check, used to detect out-of-band writes.
+    last_store_mtime: Option<SystemTime>,
 
     revisions: Vec<Revision>,
     pub listing_source: ListingSource,
@@ -246,11 +253,14 @@ impl App {
         let repo_root = backend.root().to_path_buf();
         let store = Store::open(&repo_root);
         let listing = backend.revisions(&base)?;
+        let last_store_mtime = store_mtime(&store);
 
         let mut app = Self {
             backend,
             repo_root,
             store,
+            base,
+            last_store_mtime,
             revisions: listing.revisions,
             listing_source: listing.source,
             commit_cursor: 0,
@@ -442,6 +452,7 @@ impl App {
             Action::CycleView => self.cycle_view(),
             Action::Timeline => self.open_timeline(),
             Action::Reopen => self.reopen(),
+            Action::Reload => self.reload(),
             Action::Edit => self.begin_edit(),
             Action::Delete => self.delete(),
             Action::Undo => self.undo_delete(),
@@ -910,6 +921,54 @@ impl App {
         }
     }
 
+    /// Re-read the revision list, the current diff, and the annotation log from
+    /// disk, reflecting changes made out of band (an agent addressing
+    /// annotations) without a restart. Focus, band, and diff view are preserved;
+    /// the cursor stays on the same commit where it survives the re-listing, and
+    /// the diff scrolls back to the top since code edits shift line numbers.
+    pub fn reload(&mut self) {
+        let current = self.current_revision().map(|r| r.id.clone());
+
+        let listing = match self.backend.revisions(&self.base) {
+            Ok(listing) => listing,
+            Err(error) => {
+                self.status_message = Some(format!("reload failed: {error}"));
+                return;
+            }
+        };
+
+        self.revisions = listing.revisions;
+        self.listing_source = listing.source;
+
+        let max = self.revisions.len().saturating_sub(1);
+        self.commit_cursor = current
+            .and_then(|id| self.revisions.iter().position(|r| r.id == id))
+            .unwrap_or(self.commit_cursor)
+            .min(max);
+
+        self.refresh_annotations();
+        self.annotation_cursor = self
+            .annotation_cursor
+            .min(self.annotations.len().saturating_sub(1));
+        self.load_selected_commit();
+        self.cancel_overlay_if_orphaned();
+
+        self.status_message = Some("reloaded".into());
+    }
+
+    /// Reload when the annotation log changed on disk since the last check.
+    /// Returns whether a reload happened, so the caller can redraw.
+    pub fn reload_if_changed(&mut self) -> bool {
+        let mtime = store_mtime(&self.store);
+
+        if mtime == self.last_store_mtime {
+            return false;
+        }
+
+        self.reload();
+        true
+    }
+
     /// The annotation the next command acts on: the timeline's annotation when
     /// it is open, the sidebar overview's selection when that view is active,
     /// else the one under the diff cursor.
@@ -1246,6 +1305,10 @@ impl App {
         self.annotations =
             resolve_all(&self.store, &self.repo_root, &self.backend).unwrap_or_default();
         self.recompute_commit_markers();
+        // Record the log's state as of this read so a later out-of-band write is
+        // detectable and our own writes (which run through here) do not look
+        // like one.
+        self.last_store_mtime = store_mtime(&self.store);
     }
 
     fn recompute_commit_markers(&mut self) {
@@ -1302,6 +1365,14 @@ impl App {
 
         self.line_markers = markers;
     }
+}
+
+/// Modified-time of the annotation log, or `None` when it does not yet exist or
+/// cannot be stat-ed.
+fn store_mtime(store: &Store) -> Option<SystemTime> {
+    std::fs::metadata(store.path())
+        .and_then(|meta| meta.modified())
+        .ok()
 }
 
 /// Step a cursor index up or down, clamped to `[0, max]`.

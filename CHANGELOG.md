@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Reload the review state without restarting: `R` re-reads revisions, the diff,
+  and the annotation log from disk, reflecting work an agent did while margin
+  stayed open. The same reload also runs automatically as soon as the annotation
+  log changes on disk.
+
+### Changed
+
+- The TUI input loop is now async and fully event-driven (crossterm
+  `event-stream` + `notify` on a `futures-lite` executor): it reacts to key
+  input and filesystem changes via wakers instead of polling on a timer, so it
+  no longer wakes periodically while idle.
+
 ## [0.4.0]
 
 ### Changed
