@@ -30,6 +30,7 @@ use ratatui::crossterm::terminal::{
 
 use crate::vcs::{Backend, Base, Vcs};
 use agent::AgentEvent;
+use app::Row;
 use highlight::Highlighter;
 
 /// Launch the TUI against `backend`, listing commits per `base`. `theme` is the
@@ -121,6 +122,7 @@ enum Wake {
     Terminal(Option<std::io::Result<Event>>),
     File,
     Agent(AgentEvent),
+    Highlights(highlight::Batch),
 }
 
 /// Drive the UI: redraw, then await the next terminal event or filesystem
@@ -134,13 +136,31 @@ async fn event_loop(
     agent_events: async_channel::Receiver<AgentEvent>,
 ) -> Result<()> {
     let mut reader = EventStream::new();
+    let mut prewarmed = None;
 
     while !app.should_quit {
         terminal.draw(|frame| ui::render(frame, app, highlighter))?;
 
+        // When the row set changes, schedule the whole diff for highlighting, not
+        // just the viewport, so scrolling never flashes plain. The draw above
+        // already queued the visible misses, so they lead and color first.
+        if prewarmed != Some(app.rows_generation) {
+            highlighter.prewarm(app.rows.iter().filter_map(|row| match row {
+                Row::Line { extension, line, .. } => {
+                    Some((extension.clone(), line.content.clone()))
+                }
+                _ => None,
+            }));
+            prewarmed = Some(app.rows_generation);
+        }
+
+        // Hand the queued misses to the worker; a finished batch wakes the loop
+        // via `Wake::Highlights` and the next draw paints them.
+        highlighter.dispatch();
+
         // `EventStream::next` is cancel-safe, so dropping the losing future when
-        // the race resolves loses no input. `future::race` is binary, so the file
-        // and agent sources are nested into the second arm.
+        // the race resolves loses no input. `future::race` is binary, so the
+        // file, agent, and highlight sources are nested into the second arm.
         let wake = future::race(
             async { Wake::Terminal(reader.next().await) },
             future::race(
@@ -148,14 +168,23 @@ async fn event_loop(
                     let _ = file_changes.recv().await;
                     Wake::File
                 },
-                async {
-                    match agent_events.recv().await {
-                        Ok(event) => Wake::Agent(event),
-                        // The sender lives in `app` for the loop's lifetime, so
-                        // this only happens at shutdown; idle out the race.
-                        Err(_) => future::pending().await,
-                    }
-                },
+                future::race(
+                    async {
+                        match agent_events.recv().await {
+                            Ok(event) => Wake::Agent(event),
+                            // The sender lives in `app` for the loop's lifetime,
+                            // so this only happens at shutdown; idle out the race.
+                            Err(_) => future::pending().await,
+                        }
+                    },
+                    async {
+                        match highlighter.results().recv().await {
+                            Ok(batch) => Wake::Highlights(batch),
+                            // The worker outlives the loop; idle out at shutdown.
+                            Err(_) => future::pending().await,
+                        }
+                    },
+                ),
             ),
         )
         .await;
@@ -180,6 +209,7 @@ async fn event_loop(
                 app.reload_if_changed();
             }
             Wake::Agent(event) => app.on_agent_event(event),
+            Wake::Highlights(batch) => highlighter.merge(batch),
         }
     }
 
@@ -521,8 +551,11 @@ impl Limiter {
 
         // Render once tall to measure the scene, then trim the height so the diff
         // fills the frame with no empty rows below it.
+        // No event loop here to receive worker batches, so the first draw only
+        // records misses; warm them inline before the framed draw paints colored.
         let highlighter = Highlighter::new(mode, app.palette.default_fg);
         let probe = draw(&mut app, &highlighter, 100, 60);
+        highlighter.warm_blocking();
         let height = last_content_row(&probe) as u16 + 2;
 
         svg::buffer_to_svg(&draw(&mut app, &highlighter, 100, height), mode)

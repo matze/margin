@@ -489,6 +489,9 @@ pub struct App {
 
     diff: Option<CommitDiff>,
     pub rows: Vec<Row>,
+    /// Bumped on every [`rebuild_rows`](Self::rebuild_rows) so the event loop can
+    /// detect a changed row set and prewarm its highlights.
+    pub rows_generation: u64,
     pub diff_cursor: usize,
     pub diff_top: usize,
     selection_anchor: Option<usize>,
@@ -556,6 +559,7 @@ impl App {
             annotation_top: 0,
             diff: None,
             rows: Vec::new(),
+            rows_generation: 0,
             diff_cursor: 0,
             diff_top: 0,
             selection_anchor: None,
@@ -1766,6 +1770,8 @@ impl App {
     /// Rebuild the diff rows from the loaded diff, splicing in any expanded
     /// context lines (fetched from the file at the revision).
     fn rebuild_rows(&mut self) {
+        self.rows_generation += 1;
+
         let Some(diff) = &self.diff else {
             self.rows = Vec::new();
             return;

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Syntax highlighting now runs on a background thread and prewarms the whole
+  diff: the visible lines color first and the rest fill in behind them, so the
+  redraw never stalls (notably on Markdown, which is expensive to highlight) and
+  scrolling does not flash plain text onto already-loaded lines.
 - The TUI now always starts with the diff focused (where annotating happens),
   rather than the top band — previously only single-commit reviews did so.
 - jj revisions in the commit list now highlight their shortest unique change-id
