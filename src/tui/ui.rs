@@ -1549,7 +1549,7 @@ fn help_line(app: &App) -> Line<'static> {
             ("esc", "cancel"),
         ],
         (Overlay::Timeline(_), ..) => &[
-            ("j/k ↑↓", "scroll"),
+            ("j/k ↑/↓", "scroll"),
             ("e", "edit"),
             ("r", "reopen"),
             ("d", "delete"),
@@ -1557,7 +1557,7 @@ fn help_line(app: &App) -> Line<'static> {
         ],
         (Overlay::None, Focus::Diff, _) => return diff_help_line(app),
         (Overlay::None, Focus::Band, BandView::Commits) => &[
-            ("j/k ↑↓", "commits"),
+            ("j/k ↑/↓", "commits"),
             ("enter", "open"),
             ("ctrl-u/d", "scroll msg"),
             ("tab", "diff"),
@@ -1565,14 +1565,14 @@ fn help_line(app: &App) -> Line<'static> {
             ("q", "quit"),
         ],
         (Overlay::None, Focus::Band, BandView::Files) => &[
-            ("j/k ↑↓", "files"),
+            ("j/k ↑/↓", "files"),
             ("enter", "open"),
             ("tab", "diff"),
             ("⇧tab", "view"),
             ("q", "quit"),
         ],
         (Overlay::None, Focus::Band, BandView::Annotations) => &[
-            ("j/k ↑↓", "move"),
+            ("j/k ↑/↓", "move"),
             ("enter", "jump"),
             ("t", "timeline"),
             ("e", "edit"),
@@ -1597,7 +1597,7 @@ fn diff_help_line(app: &App) -> Line<'static> {
         false => ("v", "select"),
     };
     let mut hints: Vec<(&str, &str)> = vec![
-        ("j/k ↑↓", "move"),
+        ("j/k ↑/↓", "move"),
         ("n/p", "change"),
         ("J/K", "commit"),
         ("+/-", "context"),
