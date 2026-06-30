@@ -16,7 +16,7 @@ lines or ranges, and hand them to a coding agent through a small CLI.
 
 **Pre-built binaries** are available on the [releases
 page](https://github.com/matze/margin/releases) and can be placed anywhere on
-`$PATH`. **[binge](https://github.com/matze/binge)** automates this:
+`$PATH`. *[binge](https://github.com/matze/binge)* automates this:
 
 ```sh
 binge matze/margin
@@ -36,7 +36,8 @@ Run inside a repository:
 margin                  # open the TUI; the band lists commits in <base>..@
 margin --base develop   # set the base ref explicitly
 margin -n 100           # with no base, list this many recent commits (default 50)
-margin --theme dark     # force a theme; --vcs git|jj forces a backend
+margin --theme dark     # force a theme
+margin --vcs git        # force a backend
 ```
 
 Select a commit, navigate files → hunks → lines, mark a line or range, and type
@@ -50,14 +51,14 @@ annotation overview. `Shift-Tab` cycles which view the band shows; `Tab` toggles
 focus between the band and the diff. Moving through the file list scrolls the
 diff to that file, and `Ctrl-u` / `Ctrl-d` scroll the commit message.
 
-| Key | Action |
-| --- | --- |
-| `j` / `k`, `↓` / `↑` | move within the focused pane |
-| `Tab` | toggle focus between the band and the diff |
-| `Shift-Tab` | cycle the band view: commits → files → annotations |
-| `Enter` | open the commit / jump to the file or annotation / annotate the line |
-| `R` | reload revisions, diff, and annotations from disk |
-| `q` | quit |
+| Key                   | Action                                            |
+| --------------------- | --- |
+| `j` / `k`, `↓` / `↑`  | move within the focused pane |
+| `Tab`                 | toggle focus between the band and the diff |
+| `Shift-Tab`           | cycle the band view: commits → files → annotations |
+| `Enter`               | open the commit / jump to the file or annotation / annotate the line |
+| `R`                   | reload revisions, diff, and annotations from disk |
+| `q`                   | quit |
 
 `R` reloads the state an agent wrote while margin stayed open (resolutions,
 edits, new commits); the same reload also runs automatically as soon as the
@@ -65,32 +66,42 @@ annotation log changes on disk.
 
 In the diff:
 
-| Key | Action |
-| --- | --- |
-| `n` / `p` | next / previous change |
-| `N` / `P` | next / previous annotation (crosses into adjacent commits) |
-| `J` / `K` | next / previous commit |
-| `Ctrl-d` / `Ctrl-u` | half-page down / up |
-| `+` / `-` | expand / collapse context |
-| `s` | toggle split / unified view |
-| `v` (or `Space`) | start / stop a line-range selection |
-| `a` | annotate the current line or selection |
-| `Esc` / `h` | cancel / back to the band |
+| Key                   | Action                                                    |
+| --------------------- | --------------------------------------------------------- |
+| `n` / `p`             | next / previous change                                    |
+| `N` / `P`             | next / previous annotation (crosses into adjacent commits)    |
+| `J` / `K`             | next / previous commit                                    |
+| `Ctrl-d` / `Ctrl-u`   | half-page down / up                                       |
+| `+` / `-`             | expand / collapse context                                 |
+| `s`                   | toggle split / unified view                               |
+| `v` (or `Space`)      | start / stop a line-range selection                       |
+| `a` (or `Enter`)      | annotate the current line or selection                    |
+| `Esc` / `h`           | cancel / back to the band                                 |
 
-Annotations: `e` edit · `r` reopen · `d` delete · `u` undo · `t` timeline.
+While hovering an annotation:
+
+| Key                   | Action                        |
+| --------------------- | ------------------------------|
+| `e`                   | edit                          |
+| `r`                   | reopen a closed annotation    |
+| `d`                   | delete                        |
+| `u`                   | undo earlier deletion         |
+| `t`                   | open the timeline             |
 
 In the annotation editor:
 
-| Key | Action |
-| --- | --- |
-| `←` / `→` · `↑` / `↓` | move the cursor by character / line |
-| `Ctrl-←` / `Ctrl-→` | move the cursor by word |
-| `Home` / `End` | jump to line start / end |
-| `Del` · `Ctrl-w` | delete forward · delete the previous word |
-| `Ctrl-e` | compose the annotation in `$EDITOR` (`$VISUAL`/`$EDITOR`, else `vi`) |
-| `Ctrl-t` · `Ctrl-s` · `Esc` | cycle type · save · cancel |
+| Key                   | Action                                                    |
+| --------------------- | --------------------------------------------------------- |
+| `←` / `→`, `↑` / `↓`  | move the cursor by character / line                       |
+| `Ctrl-←` / `Ctrl-→`   | move the cursor by word                                   |
+| `Home` / `End`        | jump to line start / end                                  |
+| `Del`, `Ctrl-w`       | delete forward, delete the previous word                  |
+| `Ctrl-e`              | compose the annotation in `$VISUAL`/`$EDITOR`, else `vi`  |
+| `Ctrl-t`              | cycle type                                                |
+| `Ctrl-s`              | save                                                      |
+| `Esc`                 | cancel and close editor                                   |
 
-`Ctrl-e` suspends the TUI and opens the body in your editor; the block above the
+`Ctrl-e` suspends the TUI and opens the body in your editor. The block above the
 marker line quotes the annotated source lines and is ignored, so write below it
 and save to apply.
 
@@ -136,11 +147,6 @@ acts on your working tree autonomously; review the result as you would any agent
 run. It inherits the environment, so `CLAUDE_CONFIG_DIR` and `PATH` reach the
 agent and it finds the installed skill; set `MARGIN_AGENT_CMD` to run a different
 binary or a stub.
-
-## Config
-
-Optional `.margin/config.toml` at the repo root: `base` and `theme`, both
-optional.
 
 ## Build
 
