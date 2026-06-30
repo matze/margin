@@ -222,6 +222,8 @@ pub struct Palette {
     pub annotation_bg: Color,
     /// Foreground for line-number gutters and secondary text.
     pub gutter_fg: Color,
+    /// Foreground for a revision id's shortest unique prefix in the listing.
+    pub revision_prefix: Color,
     /// Default foreground (inherits the terminal).
     pub default_fg: Color,
     /// Foreground for an added line's `+` sign.
@@ -276,6 +278,7 @@ impl Palette {
             annotated_line_bg: backgrounds.annotated_line_bg,
             annotation_bg: backgrounds.annotation_bg,
             gutter_fg: Color::DarkGray,
+            revision_prefix: Color::Magenta,
             default_fg: Color::Reset,
             sign_add: Color::Green,
             sign_remove: Color::Red,

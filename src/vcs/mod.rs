@@ -79,6 +79,10 @@ pub struct Revision {
     pub date: Timestamp,
     /// Merge commits are listed, flagged, and diffed against their first parent.
     pub is_merge: bool,
+    /// Length of the id's shortest unique prefix, when the backend resolves one
+    /// (jj). Highlighted in the listing the way jj highlights it; git leaves it
+    /// `None` and the id renders without an accented prefix.
+    pub unique_prefix_len: Option<usize>,
 }
 
 /// A single revision's own diff against its parent (PRD §6).

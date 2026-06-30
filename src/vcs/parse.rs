@@ -1,9 +1,9 @@
 //! Shared parsing for the git-format diff and the unit-separated log layout.
 //!
 //! Both backends emit the same shapes — `git diff`/`jj diff --git` produce
-//! identical unified diffs, and the git/jj log templates use the same five
-//! `FIELD_SEP`-delimited fields — so the parsing lives here rather than in
-//! either backend.
+//! identical unified diffs, and the git/jj log templates share the same
+//! `FIELD_SEP`-delimited fields (jj appends an optional unique-prefix field) —
+//! so the parsing lives here rather than in either backend.
 
 use std::path::PathBuf;
 
@@ -15,9 +15,11 @@ use crate::model::{LineNumber, RepoRelPath, RevisionId};
 /// ASCII unit separator, used to delimit log fields unambiguously.
 pub(super) const FIELD_SEP: char = '\u{1f}';
 
-/// Parse one `id\x1fdate\x1fauthor\x1fparents\x1fsummary` log line.
+/// Parse one `id\x1fdate\x1fauthor\x1fparents\x1fsummary` log line. An optional
+/// trailing `\x1fprefix` field carries the id's shortest unique prefix (jj);
+/// git omits it.
 pub(super) fn parse_log_line(line: &str) -> Result<Revision, VcsError> {
-    let mut fields = line.splitn(5, FIELD_SEP);
+    let mut fields = line.splitn(6, FIELD_SEP);
 
     let mut next = |what: &'static str| {
         fields.next().ok_or(VcsError::Parse {
@@ -31,6 +33,10 @@ pub(super) fn parse_log_line(line: &str) -> Result<Revision, VcsError> {
     let author = next("author")?.to_string();
     let parents = next("parents")?;
     let summary = next("summary")?.to_string();
+    let unique_prefix_len = fields
+        .next()
+        .filter(|prefix| !prefix.is_empty())
+        .map(|prefix| prefix.chars().count());
 
     let date = date_raw
         .parse::<Timestamp>()
@@ -45,6 +51,7 @@ pub(super) fn parse_log_line(line: &str) -> Result<Revision, VcsError> {
         author,
         date,
         is_merge: parents.split_whitespace().count() > 1,
+        unique_prefix_len,
     })
 }
 
@@ -255,4 +262,57 @@ fn parse_range(value: &str, sign: char) -> Result<(u32, u32), VcsError> {
         .map_err(|_| invalid())?;
 
     Ok((start, count))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(fields: &[&str]) -> String {
+        fields.join(&FIELD_SEP.to_string())
+    }
+
+    #[test]
+    fn git_log_line_has_no_unique_prefix() {
+        let parsed = parse_log_line(&line(&[
+            "abc123",
+            "2026-01-01T00:00:00+00:00",
+            "A",
+            "",
+            "summary",
+        ]))
+        .unwrap();
+
+        assert_eq!(parsed.unique_prefix_len, None);
+    }
+
+    #[test]
+    fn jj_log_line_carries_the_prefix_length() {
+        let parsed = parse_log_line(&line(&[
+            "zkprlstq",
+            "2026-01-01T00:00:00+00:00",
+            "A",
+            "",
+            "summary",
+            "zk",
+        ]))
+        .unwrap();
+
+        assert_eq!(parsed.unique_prefix_len, Some(2));
+    }
+
+    #[test]
+    fn empty_prefix_field_resolves_to_none() {
+        let parsed = parse_log_line(&line(&[
+            "zkprlstq",
+            "2026-01-01T00:00:00+00:00",
+            "A",
+            "",
+            "summary",
+            "",
+        ]))
+        .unwrap();
+
+        assert_eq!(parsed.unique_prefix_len, None);
+    }
 }

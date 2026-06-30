@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- jj revisions in the commit list now highlight their shortest unique change-id
+  prefix in magenta, matching how jj itself renders change ids.
+
 ## [0.6.0]
 
 ### Added

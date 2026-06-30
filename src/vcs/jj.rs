@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::parse::{FIELD_SEP, parse_diff, parse_log_line};
+use super::parse::{parse_diff, parse_log_line, FIELD_SEP};
 use super::{Base, ChangeCommits, CommitDiff, ListingSource, Revision, Revisions, Vcs, VcsError};
 use crate::model::{CommitId, RepoRelPath, RevisionId};
 
@@ -203,9 +203,10 @@ fn is_root(id: &RevisionId) -> bool {
     !id.0.is_empty() && id.0.chars().all(|c| c == 'z')
 }
 
-/// The `jj log` template emitting the same five `FIELD_SEP`-delimited fields the
-/// shared [`parse_log_line`] consumes: change id, ISO-8601 commit timestamp,
-/// author, space-joined parent change ids, and the description's first line.
+/// The `jj log` template emitting the `FIELD_SEP`-delimited fields the shared
+/// [`parse_log_line`] consumes: change id, ISO-8601 commit timestamp, author,
+/// space-joined parent change ids, the description's first line, and the change
+/// id's shortest unique prefix.
 fn log_template() -> String {
     let sep = FIELD_SEP;
 
@@ -214,7 +215,8 @@ fn log_template() -> String {
          ++ committer.timestamp().format(\"%Y-%m-%dT%H:%M:%S%:z\") ++ \"{sep}\" \
          ++ author.name() ++ \"{sep}\" \
          ++ parents.map(|c| c.change_id()).join(\" \") ++ \"{sep}\" \
-         ++ description.first_line() ++ \"\\n\""
+         ++ description.first_line() ++ \"{sep}\" \
+         ++ change_id.shortest().prefix() ++ \"\\n\""
     )
 }
 
@@ -276,6 +278,10 @@ mod tests {
             .first()
             .expect("working copy @ should be listed");
         assert!(working.summary.is_empty(), "@ is undescribed");
+        assert!(
+            working.unique_prefix_len.is_some_and(|len| len > 0),
+            "jj revisions carry a shortest unique prefix"
+        );
 
         let diff = backend.diff(&working.id).unwrap();
         assert!(!diff.files.is_empty(), "undescribed @ still has a diff");

@@ -335,6 +335,15 @@ fn commit_list_lines(app: &App, pane_bg: Color, focused: bool) -> Vec<Line<'stat
             let marker = app.commit_marker(&revision.id);
             let glyph = marker.map_or(' ', Marker::glyph);
             let short: String = revision.id.0.chars().take(7).collect();
+            let prefix_len = revision
+                .unique_prefix_len
+                .unwrap_or(0)
+                .min(short.chars().count());
+            let split = short
+                .char_indices()
+                .nth(prefix_len)
+                .map_or(short.len(), |(byte, _)| byte);
+            let (prefix, rest) = short.split_at(split);
 
             let selected = index == app.commit_cursor;
             let base_style = row_style(selected, focused, pane_bg, app.palette);
@@ -346,7 +355,11 @@ fn commit_list_lines(app: &App, pane_bg: Color, focused: bool) -> Vec<Line<'stat
                         .fg(marker_color(marker, app.palette))
                         .bg(base_style.bg.unwrap_or(pane_bg)),
                 ),
-                Span::styled(format!("{short} "), base_style.fg(app.palette.gutter_fg)),
+                Span::styled(
+                    prefix.to_string(),
+                    base_style.fg(app.palette.revision_prefix),
+                ),
+                Span::styled(format!("{rest} "), base_style.fg(app.palette.gutter_fg)),
                 Span::styled(revision.summary.clone(), base_style),
             ])
         })
