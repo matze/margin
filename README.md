@@ -12,6 +12,22 @@ lines or ranges, and hand them to a coding agent through a small CLI.
 </picture>
 
 
+## Installation
+
+**Pre-built binaries** are available on the [releases
+page](https://github.com/matze/margin/releases) and can be placed anywhere on
+`$PATH`. **[binge](https://github.com/matze/binge)** automates this:
+
+```sh
+binge matze/margin
+```
+
+**Build from source** (requires a Rust toolchain):
+
+```sh
+cargo install --git https://github.com/matze/margin
+```
+
 ## Usage
 
 Run inside a repository:
