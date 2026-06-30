@@ -1619,7 +1619,7 @@ impl Limiter {
         let repo = multi_file_fixture();
         let mut app = multi_file_app(repo.path());
 
-        // A single feature commit over the base starts in the diff.
+        // Review starts in the diff, where annotating happens.
         assert!(matches!(app.focus, Focus::Diff));
         app.apply(keymap::Action::FocusToggle);
         assert!(matches!(app.focus, Focus::Band), "tab moves to the band");

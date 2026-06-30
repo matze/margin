@@ -567,7 +567,7 @@ impl App {
             current_message: String::new(),
             message_scroll: 0,
             diff_viewport_height: 0,
-            focus: Focus::Band,
+            focus: Focus::Diff,
             view: DiffView::Unified,
             band: BandView::Commits,
             overlay: Overlay::None,
@@ -579,12 +579,6 @@ impl App {
             agent: AgentSession::default(),
             agent_tx: None,
         };
-
-        // With a single commit there is nothing to pick in the sidebar, so start
-        // in the diff where annotating happens.
-        if app.revisions.len() == 1 {
-            app.focus = Focus::Diff;
-        }
 
         app.refresh_annotations();
         app.load_selected_commit();

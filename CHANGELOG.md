@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The TUI now always starts with the diff focused (where annotating happens),
+  rather than the top band — previously only single-commit reviews did so.
 - jj revisions in the commit list now highlight their shortest unique change-id
   prefix in magenta, matching how jj itself renders change ids.
 
