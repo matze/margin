@@ -147,9 +147,9 @@ async fn event_loop(
         // already queued the visible misses, so they lead and color first.
         if prewarmed != Some(app.rows_generation) {
             highlighter.prewarm(app.rows.iter().filter_map(|row| match row {
-                Row::Line { extension, line, .. } => {
-                    Some((extension.clone(), line.content.clone()))
-                }
+                Row::Line {
+                    extension, line, ..
+                } => Some((extension.clone(), line.content.clone())),
                 _ => None,
             }));
             prewarmed = Some(app.rows_generation);

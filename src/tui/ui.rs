@@ -1335,7 +1335,15 @@ fn render_diff_line(
     ];
 
     spans.extend(content_spans(
-        highlighter, extension, line, emphasis, bg, palette, focus, line_marker, modifier,
+        highlighter,
+        extension,
+        line,
+        emphasis,
+        bg,
+        palette,
+        focus,
+        line_marker,
+        modifier,
         highlighting,
     ));
 
@@ -1471,7 +1479,15 @@ fn render_cell(
     ];
 
     spans.extend(content_spans(
-        highlighter, extension, line, emphasis, bg, palette, focus, line_marker, modifier,
+        highlighter,
+        extension,
+        line,
+        emphasis,
+        bg,
+        palette,
+        focus,
+        line_marker,
+        modifier,
         highlighting,
     ));
 

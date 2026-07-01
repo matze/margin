@@ -413,7 +413,12 @@ pub enum Row {
 
 impl Row {
     /// A diff line carrying its intraline-change `emphasis` ranges.
-    fn line(file_index: usize, extension: &str, line: DiffLine, emphasis: Vec<Range<usize>>) -> Row {
+    fn line(
+        file_index: usize,
+        extension: &str,
+        line: DiffLine,
+        emphasis: Vec<Range<usize>>,
+    ) -> Row {
         Row::Line {
             file_index,
             extension: extension.to_string(),

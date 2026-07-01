@@ -36,7 +36,8 @@ commit's diff; a coding agent consumes the annotations through the `margin` CLI
 
 ## Verify
 
-`cargo test` and `cargo clippy --all-targets` should be clean before finishing.
-The `#[ignore]`d `dump_preview` test renders the TUI for eyeballing.
+`cargo fmt`, `cargo test` and `cargo clippy --all-targets` should be clean
+before finishing. The `#[ignore]`d `dump_preview` test renders the TUI for
+eyeballing.
 
 `docs/PRD.md` holds the original v1 spec and decision log.
