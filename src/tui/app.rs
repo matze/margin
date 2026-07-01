@@ -6,6 +6,7 @@
 //! the resulting state.
 
 use std::collections::HashMap;
+use std::ops::Range;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -22,6 +23,7 @@ use crate::vcs::{
 };
 
 use super::agent::{self, AgentEvent, AgentScope, Outcome};
+use super::emphasis;
 use super::keymap::Action;
 use super::theme::{Palette, ThemeMode};
 
@@ -402,7 +404,28 @@ pub enum Row {
         /// File extension, for syntax highlighting.
         extension: String,
         line: DiffLine,
+        /// Word-level changed byte ranges into `line.content`, for a line paired
+        /// with a replacement counterpart in the same hunk. Empty for context
+        /// lines and for unpaired/too-dissimilar added/removed lines.
+        emphasis: Vec<Range<usize>>,
     },
+}
+
+impl Row {
+    /// A diff line carrying its intraline-change `emphasis` ranges.
+    fn line(file_index: usize, extension: &str, line: DiffLine, emphasis: Vec<Range<usize>>) -> Row {
+        Row::Line {
+            file_index,
+            extension: extension.to_string(),
+            line,
+            emphasis,
+        }
+    }
+
+    /// A context (unchanged) diff line, which never carries emphasis.
+    fn context_line(file_index: usize, extension: &str, line: DiffLine) -> Row {
+        Row::line(file_index, extension, line, Vec::new())
+    }
 }
 
 /// A gutter/sidebar annotation marker.
@@ -2066,41 +2089,28 @@ fn build_rows(
             });
 
             for context in context_lines(head, extra_of(head), file_lines, ContextSide::Before) {
-                rows.push(Row::Line {
-                    file_index,
-                    extension: extension.clone(),
-                    line: context,
-                });
+                rows.push(Row::context_line(file_index, &extension, context));
             }
 
             for member in start..=end {
-                for line in &file.hunks[member].lines {
-                    rows.push(Row::Line {
-                        file_index,
-                        extension: extension.clone(),
-                        line: line.clone(),
-                    });
+                let hunk = &file.hunks[member];
+                let emphasis = emphasis::hunk_emphasis(&hunk.lines);
+
+                for (line, emphasis) in hunk.lines.iter().zip(emphasis) {
+                    rows.push(Row::line(file_index, &extension, line.clone(), emphasis));
                 }
 
                 if member < end {
                     for context in
                         gap_context(&file.hunks[member], &file.hunks[member + 1], file_lines)
                     {
-                        rows.push(Row::Line {
-                            file_index,
-                            extension: extension.clone(),
-                            line: context,
-                        });
+                        rows.push(Row::context_line(file_index, &extension, context));
                     }
                 }
             }
 
             for context in context_lines(tail, extra_of(tail), file_lines, ContextSide::After) {
-                rows.push(Row::Line {
-                    file_index,
-                    extension: extension.clone(),
-                    line: context,
-                });
+                rows.push(Row::context_line(file_index, &extension, context));
             }
 
             start = end + 1;
@@ -2366,6 +2376,44 @@ mod tests {
             1
         );
         assert_eq!(new_numbers(&rows), (1..=9).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn build_rows_carries_intraline_emphasis_on_paired_lines() {
+        let hunk = Hunk {
+            old_start: 1,
+            old_count: 1,
+            new_start: 1,
+            new_count: 1,
+            section: String::new(),
+            lines: vec![
+                DiffLine {
+                    kind: DiffLineKind::Removed,
+                    old_no: LineNumber::new(1),
+                    new_no: None,
+                    content: "let x = one;".into(),
+                },
+                DiffLine {
+                    kind: DiffLineKind::Added,
+                    old_no: None,
+                    new_no: LineNumber::new(1),
+                    content: "let x = two;".into(),
+                },
+            ],
+        };
+        let rows = build_rows(&diff_with(vec![hunk]), &HashMap::new(), &HashMap::new());
+
+        let emphasized: Vec<String> = rows
+            .iter()
+            .filter_map(|row| match row {
+                Row::Line { line, emphasis, .. } if !emphasis.is_empty() => {
+                    Some(line.content[emphasis[0].clone()].to_string())
+                }
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(emphasized, vec!["one", "two"]);
     }
 
     #[test]

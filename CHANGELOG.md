@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Word-level ("intraline") diff highlighting: within a modified line paired with
+  its replacement, only the changed words get a brighter background tint on top
+  of the base add/remove tint, so a one-word change no longer reads as a
+  whole-line change (like `delta`'s `minus-emph`/`plus-emph`). Applies to both
+  the unified and split diff views.
+
 ### Changed
 
 - Diff line-number gutters now tint green/red on added/removed lines (matching

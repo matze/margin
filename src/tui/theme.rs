@@ -206,6 +206,12 @@ pub struct Palette {
     pub add_bg: Color,
     /// Background for removed lines.
     pub remove_bg: Color,
+    /// Background for the changed substring within an added line (delta's
+    /// `plus-emph-style`), layered over [`add_bg`](Self::add_bg).
+    pub add_emph_bg: Color,
+    /// Background for the changed substring within a removed line (delta's
+    /// `minus-emph-style`), layered over [`remove_bg`](Self::remove_bg).
+    pub remove_emph_bg: Color,
     /// Background for the visual selection.
     pub selection_bg: Color,
     /// Background highlight for the focused row.
@@ -249,6 +255,8 @@ impl Palette {
             ThemeMode::Dark => Backgrounds {
                 add_bg: Color::Rgb(18, 48, 32),
                 remove_bg: Color::Rgb(58, 24, 28),
+                add_emph_bg: Color::Rgb(32, 92, 54),
+                remove_emph_bg: Color::Rgb(110, 40, 46),
                 selection_bg: Color::Rgb(46, 52, 64),
                 cursor_bg: Color::Rgb(38, 42, 52),
                 text_cursor_bg: Color::Rgb(136, 192, 208),
@@ -259,6 +267,8 @@ impl Palette {
             ThemeMode::Light => Backgrounds {
                 add_bg: Color::Rgb(214, 245, 222),
                 remove_bg: Color::Rgb(250, 220, 222),
+                add_emph_bg: Color::Rgb(150, 215, 165),
+                remove_emph_bg: Color::Rgb(240, 165, 170),
                 selection_bg: Color::Rgb(216, 224, 240),
                 cursor_bg: Color::Rgb(226, 232, 242),
                 text_cursor_bg: Color::Rgb(60, 110, 200),
@@ -271,6 +281,8 @@ impl Palette {
         Palette {
             add_bg: backgrounds.add_bg,
             remove_bg: backgrounds.remove_bg,
+            add_emph_bg: backgrounds.add_emph_bg,
+            remove_emph_bg: backgrounds.remove_emph_bg,
             selection_bg: backgrounds.selection_bg,
             cursor_bg: backgrounds.cursor_bg,
             text_cursor_bg: backgrounds.text_cursor_bg,
@@ -296,6 +308,8 @@ impl Palette {
 struct Backgrounds {
     add_bg: Color,
     remove_bg: Color,
+    add_emph_bg: Color,
+    remove_emph_bg: Color,
     selection_bg: Color,
     cursor_bg: Color,
     text_cursor_bg: Color,

@@ -13,6 +13,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 
+use std::ops::Range;
+
 use crate::export::type_label;
 use crate::model::{Anchor, Event, EventKind, Side};
 use crate::review::{ResolvedAnnotation, RevisionState};
@@ -22,11 +24,87 @@ use super::app::{
     App, BandView, DiffView, EditorMode, Focus, LineMarker, Marker, Overlay, Row, SpanPosition,
     keep_in_view,
 };
+use super::emphasis;
 use super::highlight::Highlighter;
 use super::theme::Palette;
 
 /// Above this many diff rows, skip syntax highlighting to stay responsive.
 const HIGHLIGHT_ROW_CAP: usize = 5000;
+
+/// A diff row's focus state, which selects its background tint and whether
+/// intraline emphasis is shown.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RowFocus {
+    /// The diff cursor is on this row.
+    Cursor,
+    /// The row falls within the visual selection.
+    Selected,
+    /// Neither; the row shows its natural background.
+    Unfocused,
+}
+
+impl RowFocus {
+    /// The row's focus given whether the pane is `focused`, the cursor sits on
+    /// it, and it lies within the selection. The cursor wins over selection.
+    fn resolve(focused: bool, is_cursor: bool, in_selection: bool) -> RowFocus {
+        match (focused, is_cursor, in_selection) {
+            (true, true, _) => RowFocus::Cursor,
+            (true, false, true) => RowFocus::Selected,
+            _ => RowFocus::Unfocused,
+        }
+    }
+
+    /// The row background: the cursor/selection tint, else `base`.
+    fn background(self, palette: Palette, base: Color) -> Color {
+        match self {
+            RowFocus::Cursor => palette.cursor_bg,
+            RowFocus::Selected => palette.selection_bg,
+            RowFocus::Unfocused => base,
+        }
+    }
+
+    /// A background that tints only under the cursor, else `base`. Used by
+    /// headers, which the selection span may cross without highlighting.
+    fn cursor_background(self, palette: Palette, base: Color) -> Color {
+        match self {
+            RowFocus::Cursor => palette.cursor_bg,
+            RowFocus::Selected | RowFocus::Unfocused => base,
+        }
+    }
+
+    /// A bold modifier only under the cursor (see [`cursor_background`]).
+    ///
+    /// [`cursor_background`]: Self::cursor_background
+    fn cursor_modifier(self) -> Modifier {
+        match self {
+            RowFocus::Cursor => Modifier::BOLD,
+            RowFocus::Selected | RowFocus::Unfocused => Modifier::empty(),
+        }
+    }
+
+    /// Rows under the cursor or selection are bolded to stay legible under the
+    /// tint.
+    fn modifier(self) -> Modifier {
+        match self {
+            RowFocus::Unfocused => Modifier::empty(),
+            _ => Modifier::BOLD,
+        }
+    }
+
+    /// Whether a whole-line background is in effect, which overrides per-word
+    /// intraline emphasis.
+    fn overrides_emphasis(self) -> bool {
+        self != RowFocus::Unfocused
+    }
+}
+
+/// Whether diff content is syntax-highlighted or rendered as plain text (the
+/// latter past the row cap, to stay responsive on very large diffs).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Highlighting {
+    Syntax,
+    Plain,
+}
 
 /// Columns before a diff line's content: the marker (2) + the two line-number
 /// gutters (10) + the +/- sign (1). Inline annotation text is indented to this
@@ -535,7 +613,11 @@ fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area
     let anchor_row = editor_anchor_row(app).unwrap_or(app.diff_cursor);
     adjust_diff_top(app, height, &screen, &attachments, anchor_row);
 
-    let highlight = app.rows.len() <= HIGHLIGHT_ROW_CAP;
+    let highlighting = if app.rows.len() <= HIGHLIGHT_ROW_CAP {
+        Highlighting::Syntax
+    } else {
+        Highlighting::Plain
+    };
     let (lo, hi) = app.selection();
     let pane_bg = Color::Reset;
 
@@ -569,7 +651,7 @@ fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area
             focused,
             lo,
             hi,
-            highlight,
+            highlighting,
         ));
 
         for row in covered_rows(screen_row) {
@@ -665,21 +747,23 @@ fn render_screen_row(
     focused: bool,
     lo: usize,
     hi: usize,
-    highlight: bool,
+    highlighting: Highlighting,
 ) -> Line<'static> {
     match screen_row {
         ScreenRow::Full(index) => {
-            let is_cursor = *index == app.diff_cursor && focused;
-            let in_selection = focused && app.selecting() && (lo..=hi).contains(index);
+            let focus = RowFocus::resolve(
+                focused,
+                *index == app.diff_cursor,
+                app.selecting() && (lo..=hi).contains(index),
+            );
             let line = render_row(
                 app,
                 highlighter,
                 &app.rows[*index],
                 width,
                 pane_bg,
-                is_cursor,
-                in_selection,
-                highlight,
+                focus,
+                highlighting,
             );
 
             match app.view {
@@ -699,7 +783,7 @@ fn render_screen_row(
                 focused,
                 lo,
                 hi,
-                highlight,
+                highlighting,
             );
             spans.push(Span::styled(
                 "│",
@@ -715,7 +799,7 @@ fn render_screen_row(
                 focused,
                 lo,
                 hi,
-                highlight,
+                highlighting,
             ));
             Line::from(spans)
         }
@@ -1105,26 +1189,22 @@ fn bracket_span(bracket: char, color: Color, bg: Color) -> Span<'static> {
     Span::styled(format!("{bracket} "), Style::default().fg(color).bg(bg))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_row(
     app: &App,
     highlighter: &Highlighter,
     row: &Row,
     width: usize,
     pane_bg: Color,
-    is_cursor: bool,
-    in_selection: bool,
-    highlight: bool,
+    focus: RowFocus,
+    highlighting: Highlighting,
 ) -> Line<'static> {
     let palette = app.palette;
 
     match row {
         Row::File { label, change } => {
-            let bg = if is_cursor {
-                palette.cursor_bg
-            } else {
-                pane_bg
-            };
+            // Headers track only the cursor, not the selection span that may
+            // cross them.
+            let bg = focus.cursor_background(palette, pane_bg);
             padded_row(
                 vec![Span::styled(
                     format!(" ▸ {} {label}", change_glyph(*change)),
@@ -1146,16 +1226,7 @@ fn render_row(
             section,
             ..
         } => {
-            let bg = if is_cursor {
-                palette.cursor_bg
-            } else {
-                pane_bg
-            };
-            let emphasis = if is_cursor {
-                Modifier::BOLD
-            } else {
-                Modifier::empty()
-            };
+            let bg = focus.cursor_background(palette, pane_bg);
             let text = format!(
                 "@@ -{old_start},{old_count} +{new_start},{new_count} @@ {section}  (± context)"
             );
@@ -1165,7 +1236,7 @@ fn render_row(
                     Style::default()
                         .fg(palette.hunk_fg)
                         .bg(bg)
-                        .add_modifier(emphasis),
+                        .add_modifier(focus.cursor_modifier()),
                 )],
                 width,
                 bg,
@@ -1176,17 +1247,18 @@ fn render_row(
             file_index,
             extension,
             line,
+            emphasis,
         } => render_diff_line(
             app,
             highlighter,
             *file_index,
             extension,
             line,
+            emphasis,
             width,
             pane_bg,
-            is_cursor,
-            in_selection,
-            highlight,
+            focus,
+            highlighting,
         ),
     }
 }
@@ -1198,11 +1270,11 @@ fn render_diff_line(
     file_index: usize,
     extension: &str,
     line: &DiffLine,
+    emphasis: &[Range<usize>],
     width: usize,
     pane_bg: Color,
-    is_cursor: bool,
-    in_selection: bool,
-    highlight: bool,
+    focus: RowFocus,
+    highlighting: Highlighting,
 ) -> Line<'static> {
     let palette = app.palette;
 
@@ -1224,28 +1296,18 @@ fn render_diff_line(
             DiffLineKind::Context => pane_bg,
         }
     };
-    let bg = if is_cursor {
-        palette.cursor_bg
-    } else if in_selection {
-        palette.selection_bg
-    } else {
-        base_bg
-    };
+    let bg = focus.background(palette, base_bg);
 
     // Bold the highlighted row so the cursor and selection stay legible under a
     // subtle background tint.
-    let emphasis = if is_cursor || in_selection {
-        Modifier::BOLD
-    } else {
-        Modifier::empty()
-    };
+    let modifier = focus.modifier();
 
     let marker_span = Span::styled(
         format!("{} ", line_marker.map_or(' ', marker_glyph)),
         Style::default()
             .fg(palette.marker_open)
             .bg(bg)
-            .add_modifier(emphasis),
+            .add_modifier(modifier),
     );
 
     let gutter = format!(
@@ -1264,40 +1326,57 @@ fn render_diff_line(
         marker_span,
         Span::styled(
             gutter,
-            Style::default().fg(sign_fg).bg(bg).add_modifier(emphasis),
+            Style::default().fg(sign_fg).bg(bg).add_modifier(modifier),
         ),
         Span::styled(
             sign.to_string(),
-            Style::default().fg(sign_fg).bg(bg).add_modifier(emphasis),
+            Style::default().fg(sign_fg).bg(bg).add_modifier(modifier),
         ),
     ];
 
-    let content_spans = if highlight {
-        highlighter
-            .spans(extension, &line.content)
-            .into_iter()
-            .map(|span| {
-                Span::styled(
-                    span.text,
-                    Style::default()
-                        .fg(span.color)
-                        .bg(bg)
-                        .add_modifier(emphasis),
-                )
-            })
-            .collect()
-    } else {
-        vec![Span::styled(
-            line.content.clone(),
-            Style::default()
-                .fg(palette.default_fg)
-                .bg(bg)
-                .add_modifier(emphasis),
-        )]
-    };
-    spans.extend(content_spans);
+    spans.extend(content_spans(
+        highlighter, extension, line, emphasis, bg, palette, focus, line_marker, modifier,
+        highlighting,
+    ));
 
     padded_row(spans, width, bg)
+}
+
+/// The styled content spans for a diff line: the syntax-highlighted (or plain)
+/// text, with intraline-changed byte ranges tinted on top. Emphasis is
+/// suppressed when the row already carries a whole-line background (cursor,
+/// selection, or annotation) so those stay uniform.
+#[allow(clippy::too_many_arguments)]
+fn content_spans(
+    highlighter: &Highlighter,
+    extension: &str,
+    line: &DiffLine,
+    emphasis: &[Range<usize>],
+    bg: Color,
+    palette: Palette,
+    focus: RowFocus,
+    line_marker: Option<LineMarker>,
+    modifier: Modifier,
+    highlighting: Highlighting,
+) -> Vec<Span<'static>> {
+    let (emphasis, emph_bg) = if focus.overrides_emphasis() || line_marker.is_some() {
+        (&[][..], bg)
+    } else {
+        match line.kind {
+            DiffLineKind::Added => (emphasis, palette.add_emph_bg),
+            DiffLineKind::Removed => (emphasis, palette.remove_emph_bg),
+            DiffLineKind::Context => (&[][..], bg),
+        }
+    };
+
+    let segments: Vec<(String, Color)> = match highlighting {
+        Highlighting::Syntax => {
+            emphasis::segments_from(highlighter.spans(extension, &line.content)).collect()
+        }
+        Highlighting::Plain => vec![(line.content.clone(), palette.default_fg)],
+    };
+
+    emphasis::styled_content(segments, emphasis, bg, emph_bg, modifier)
 }
 
 /// Render one side of a split diff line into exactly `width` columns: the
@@ -1314,7 +1393,7 @@ fn render_cell(
     focused: bool,
     lo: usize,
     hi: usize,
-    highlight: bool,
+    highlighting: Highlighting,
 ) -> Vec<Span<'static>> {
     let palette = app.palette;
 
@@ -1329,6 +1408,7 @@ fn render_cell(
         file_index,
         extension,
         line,
+        emphasis,
     }) = app.rows.get(row_index)
     else {
         return vec![Span::styled(
@@ -1354,22 +1434,14 @@ fn render_cell(
         }
     };
 
-    let is_cursor = row_index == app.diff_cursor && focused;
-    let in_selection = focused && app.selecting() && (lo..=hi).contains(&row_index);
+    let focus = RowFocus::resolve(
+        focused,
+        row_index == app.diff_cursor,
+        app.selecting() && (lo..=hi).contains(&row_index),
+    );
 
-    let bg = if is_cursor {
-        palette.cursor_bg
-    } else if in_selection {
-        palette.selection_bg
-    } else {
-        base_bg
-    };
-
-    let emphasis = if is_cursor || in_selection {
-        Modifier::BOLD
-    } else {
-        Modifier::empty()
-    };
+    let bg = focus.background(palette, base_bg);
+    let modifier = focus.modifier();
 
     let (sign, sign_fg) = match line.kind {
         DiffLineKind::Added => ('+', palette.sign_add),
@@ -1383,45 +1455,25 @@ fn render_cell(
             Style::default()
                 .fg(palette.marker_open)
                 .bg(bg)
-                .add_modifier(emphasis),
+                .add_modifier(modifier),
         ),
         Span::styled(
             format!(
                 "{:>4} ",
                 number.map(|n| n.get().to_string()).unwrap_or_default()
             ),
-            Style::default().fg(sign_fg).bg(bg).add_modifier(emphasis),
+            Style::default().fg(sign_fg).bg(bg).add_modifier(modifier),
         ),
         Span::styled(
             sign.to_string(),
-            Style::default().fg(sign_fg).bg(bg).add_modifier(emphasis),
+            Style::default().fg(sign_fg).bg(bg).add_modifier(modifier),
         ),
     ];
 
-    if highlight {
-        spans.extend(
-            highlighter
-                .spans(extension, &line.content)
-                .into_iter()
-                .map(|span| {
-                    Span::styled(
-                        span.text,
-                        Style::default()
-                            .fg(span.color)
-                            .bg(bg)
-                            .add_modifier(emphasis),
-                    )
-                }),
-        );
-    } else {
-        spans.push(Span::styled(
-            line.content.clone(),
-            Style::default()
-                .fg(palette.default_fg)
-                .bg(bg)
-                .add_modifier(emphasis),
-        ));
-    }
+    spans.extend(content_spans(
+        highlighter, extension, line, emphasis, bg, palette, focus, line_marker, modifier,
+        highlighting,
+    ));
 
     fit_spans(spans, width, bg)
 }

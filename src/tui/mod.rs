@@ -6,6 +6,7 @@
 
 mod agent;
 mod app;
+mod emphasis;
 mod highlight;
 mod keymap;
 #[cfg(test)]
