@@ -1264,10 +1264,7 @@ fn render_diff_line(
         marker_span,
         Span::styled(
             gutter,
-            Style::default()
-                .fg(palette.gutter_fg)
-                .bg(bg)
-                .add_modifier(emphasis),
+            Style::default().fg(sign_fg).bg(bg).add_modifier(emphasis),
         ),
         Span::styled(
             sign.to_string(),
@@ -1393,10 +1390,7 @@ fn render_cell(
                 "{:>4} ",
                 number.map(|n| n.get().to_string()).unwrap_or_default()
             ),
-            Style::default()
-                .fg(palette.gutter_fg)
-                .bg(bg)
-                .add_modifier(emphasis),
+            Style::default().fg(sign_fg).bg(bg).add_modifier(emphasis),
         ),
         Span::styled(
             sign.to_string(),

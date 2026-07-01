@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Diff line-number gutters now tint green/red on added/removed lines (matching
+  the sign color) instead of a flat gray, closer to how pagers like `delta`
+  color their line-number columns.
+
 ## [0.7.0]
 
 ### Changed
