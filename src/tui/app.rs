@@ -1858,8 +1858,45 @@ impl App {
             self.expansions.insert(key, next);
         }
 
+        // Splicing context in shifts row indices, so pin the cursor to its
+        // source line rather than its (now stale) row position.
+        let cursor_line = self.cursor_line();
+
         self.rebuild_rows();
-        self.diff_cursor = self.diff_cursor.min(self.rows.len().saturating_sub(1));
+
+        self.diff_cursor = cursor_line
+            .and_then(|line| self.locate_line(line))
+            .unwrap_or_else(|| self.diff_cursor.min(self.rows.len().saturating_sub(1)));
+    }
+
+    /// Source-line identity `(file_index, old_no, new_no)` of the row under the
+    /// cursor, for a diff line. `None` for file/hunk headers.
+    fn cursor_line(&self) -> Option<(usize, Option<u32>, Option<u32>)> {
+        match self.rows.get(self.diff_cursor)? {
+            Row::Line {
+                file_index, line, ..
+            } => Some((
+                *file_index,
+                line.old_no.map(LineNumber::get),
+                line.new_no.map(LineNumber::get),
+            )),
+            _ => None,
+        }
+    }
+
+    /// Row index of the diff line matching a `cursor_line` identity.
+    fn locate_line(&self, line: (usize, Option<u32>, Option<u32>)) -> Option<usize> {
+        let (file_index, old_no, new_no) = line;
+
+        self.rows.iter().position(|row| {
+            matches!(
+                row,
+                Row::Line { file_index: fi, line, .. }
+                    if *fi == file_index
+                        && line.old_no.map(LineNumber::get) == old_no
+                        && line.new_no.map(LineNumber::get) == new_no
+            )
+        })
     }
 
     /// The `(file_index, new_start)` key of the hunk the cursor sits in.
