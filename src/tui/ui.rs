@@ -952,6 +952,15 @@ struct BlockLayout {
 }
 
 impl BlockLayout {
+    /// Columns available for body text after the lead, gutter indent, and
+    /// trailer are accounted for.
+    fn text_width(&self, width: usize) -> usize {
+        let lead: usize = self.lead.iter().map(|s| s.content.chars().count()).sum();
+        let trailer: usize = self.trailer.iter().map(|s| s.content.chars().count()).sum();
+
+        width.saturating_sub(lead + self.indent + trailer)
+    }
+
     /// Wrap a block's `content` spans in its lead and trailer, padding the gap to
     /// the next cell boundary with `bg`.
     fn finish(&self, content: Vec<Span<'static>>, width: usize, bg: Color) -> Line<'static> {
@@ -1026,10 +1035,7 @@ fn annotation_block(
     let bg = palette.annotation_bg;
     let kind = annotation.annotation_type.map(type_label).unwrap_or("note");
 
-    let body_lines: Vec<&str> = match annotation.body.lines().collect::<Vec<_>>() {
-        empty if empty.is_empty() => vec![""],
-        lines => lines,
-    };
+    let body_lines = wrap_text(&annotation.body, layout.text_width(width));
     let last = body_lines.len() - 1;
 
     body_lines

@@ -1087,6 +1087,47 @@ impl Limiter {
     }
 
     #[test]
+    fn long_annotation_body_wraps_across_multiple_lines() {
+        let repo = fixture();
+        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::SelectCommit);
+        app.apply(keymap::Action::Down);
+        app.apply(keymap::Action::Down);
+        app.apply(keymap::Action::Annotate);
+
+        // A body wider than the content column (110 − 13-col gutter) so it cannot
+        // fit on one line and its tail would fall off the right edge unwrapped.
+        let body = "alpha bravo charlie delta echo foxtrot golf hotel india juliet \
+            kilo lima mike november oscar papa quebec romeo endmarker";
+        for c in body.chars() {
+            app.apply(keymap::Action::EditorChar(c));
+        }
+        app.apply(keymap::Action::EditorSave);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(110, 30)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        let rendered = terminal.backend().to_string();
+        let first = rendered
+            .lines()
+            .position(|l| l.contains("alpha"))
+            .expect("body's first word renders");
+        let last = rendered
+            .lines()
+            .position(|l| l.contains("endmarker"))
+            .expect("body's last word renders on a wrapped line");
+
+        assert!(
+            last > first,
+            "the tail wraps onto a later line rather than being truncated:\n{rendered}"
+        );
+    }
+
+    #[test]
     fn editor_paints_the_cursor_under_a_mid_line_character() {
         let repo = fixture();
         let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();

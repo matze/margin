@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expanding or collapsing context (`+`/`-`) now keeps the cursor on the same
   source line instead of letting the spliced-in context shift it to a different
   line.
+- Inline annotation bodies now word-wrap across multiple lines instead of
+  rendering on a single line whose tail ran off the right edge.
 
 ## [0.8.0]
 
