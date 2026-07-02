@@ -266,7 +266,7 @@ mod tests {
         // One syntax span covering "abcdef"; emphasize the middle "cd".
         let spans = styled_content(
             [("abcdef".to_string(), Color::White)],
-            &[2..4],
+            std::slice::from_ref(&(2..4)),
             Color::Reset,
             Color::Red,
             Modifier::empty(),
