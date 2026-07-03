@@ -248,11 +248,36 @@ pub struct Palette {
     pub marker_attention: Color,
 }
 
+/// The ANSI foreground accents shared by every mode; the background fields are
+/// placeholders overridden per mode in [`Palette::for_mode`].
+const ANSI_FOREGROUNDS: Palette = Palette {
+    gutter_fg: Color::DarkGray,
+    revision_prefix: Color::Magenta,
+    default_fg: Color::Reset,
+    sign_add: Color::Green,
+    sign_remove: Color::Red,
+    hunk_fg: Color::Cyan,
+    help_key: Color::Magenta,
+    marker_open: Color::Yellow,
+    marker_resolved: Color::Green,
+    marker_attention: Color::Red,
+    add_bg: Color::Reset,
+    remove_bg: Color::Reset,
+    add_emph_bg: Color::Reset,
+    remove_emph_bg: Color::Reset,
+    selection_bg: Color::Reset,
+    cursor_bg: Color::Reset,
+    text_cursor_bg: Color::Reset,
+    text_cursor_fg: Color::Reset,
+    annotated_line_bg: Color::Reset,
+    annotation_bg: Color::Reset,
+};
+
 impl Palette {
     /// The palette for `mode`.
     pub fn for_mode(mode: ThemeMode) -> Self {
-        let backgrounds = match mode {
-            ThemeMode::Dark => Backgrounds {
+        match mode {
+            ThemeMode::Dark => Palette {
                 add_bg: Color::Rgb(18, 48, 32),
                 remove_bg: Color::Rgb(58, 24, 28),
                 add_emph_bg: Color::Rgb(32, 92, 54),
@@ -263,8 +288,9 @@ impl Palette {
                 text_cursor_fg: Color::Rgb(22, 26, 33),
                 annotated_line_bg: Color::Rgb(40, 38, 22),
                 annotation_bg: Color::Rgb(54, 50, 28),
+                ..ANSI_FOREGROUNDS
             },
-            ThemeMode::Light => Backgrounds {
+            ThemeMode::Light => Palette {
                 add_bg: Color::Rgb(214, 245, 222),
                 remove_bg: Color::Rgb(250, 220, 222),
                 add_emph_bg: Color::Rgb(150, 215, 165),
@@ -275,47 +301,10 @@ impl Palette {
                 text_cursor_fg: Color::Rgb(248, 250, 252),
                 annotated_line_bg: Color::Rgb(250, 246, 214),
                 annotation_bg: Color::Rgb(246, 238, 198),
+                ..ANSI_FOREGROUNDS
             },
-        };
-
-        Palette {
-            add_bg: backgrounds.add_bg,
-            remove_bg: backgrounds.remove_bg,
-            add_emph_bg: backgrounds.add_emph_bg,
-            remove_emph_bg: backgrounds.remove_emph_bg,
-            selection_bg: backgrounds.selection_bg,
-            cursor_bg: backgrounds.cursor_bg,
-            text_cursor_bg: backgrounds.text_cursor_bg,
-            text_cursor_fg: backgrounds.text_cursor_fg,
-            annotated_line_bg: backgrounds.annotated_line_bg,
-            annotation_bg: backgrounds.annotation_bg,
-            gutter_fg: Color::DarkGray,
-            revision_prefix: Color::Magenta,
-            default_fg: Color::Reset,
-            sign_add: Color::Green,
-            sign_remove: Color::Red,
-            hunk_fg: Color::Cyan,
-            help_key: Color::Magenta,
-            marker_open: Color::Yellow,
-            marker_resolved: Color::Green,
-            marker_attention: Color::Red,
         }
     }
-}
-
-/// The per-mode background tints, kept together so [`Palette::for_mode`] reads
-/// as "these backgrounds, those ANSI foregrounds".
-struct Backgrounds {
-    add_bg: Color,
-    remove_bg: Color,
-    add_emph_bg: Color,
-    remove_emph_bg: Color,
-    selection_bg: Color,
-    cursor_bg: Color,
-    text_cursor_bg: Color,
-    text_cursor_fg: Color,
-    annotated_line_bg: Color,
-    annotation_bg: Color,
 }
 
 #[cfg(test)]
