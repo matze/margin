@@ -16,7 +16,7 @@ use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 use std::ops::Range;
 
 use crate::export::type_label;
-use crate::model::{Anchor, Event, EventKind, Side};
+use crate::model::{Anchor, Event, EventKind, LineNumber, Side};
 use crate::review::{ResolvedAnnotation, RevisionState};
 use crate::vcs::{ChangeKind, DiffLine, DiffLineKind, ListingSource};
 
@@ -1269,6 +1269,58 @@ fn render_row(
     }
 }
 
+/// The line's number on `side`.
+fn side_number(line: &DiffLine, side: Side) -> Option<LineNumber> {
+    match side {
+        Side::Old => line.old_no,
+        Side::New => line.new_no,
+    }
+}
+
+/// The base background before focus highlighting: annotated lines carry the
+/// annotation tint, otherwise the add/remove/context background.
+fn line_base_bg(
+    kind: DiffLineKind,
+    marker: Option<LineMarker>,
+    palette: Palette,
+    pane_bg: Color,
+) -> Color {
+    if marker.is_some() {
+        palette.annotated_line_bg
+    } else {
+        match kind {
+            DiffLineKind::Added => palette.add_bg,
+            DiffLineKind::Removed => palette.remove_bg,
+            DiffLineKind::Context => pane_bg,
+        }
+    }
+}
+
+/// The sign glyph and its foreground color for a diff line kind.
+fn sign_for(kind: DiffLineKind, palette: Palette) -> (char, Color) {
+    match kind {
+        DiffLineKind::Added => ('+', palette.sign_add),
+        DiffLineKind::Removed => ('-', palette.sign_remove),
+        DiffLineKind::Context => (' ', palette.gutter_fg),
+    }
+}
+
+/// The leading marker-gutter span: the annotation glyph followed by a space.
+fn marker_span(
+    marker: Option<LineMarker>,
+    bg: Color,
+    modifier: Modifier,
+    palette: Palette,
+) -> Span<'static> {
+    Span::styled(
+        format!("{} ", marker.map_or(' ', marker_glyph)),
+        Style::default()
+            .fg(palette.marker_open)
+            .bg(bg)
+            .add_modifier(modifier),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_diff_line(
     app: &App,
@@ -1284,37 +1336,16 @@ fn render_diff_line(
 ) -> Line<'static> {
     let palette = app.palette;
 
-    let line_marker = match line.kind {
-        DiffLineKind::Removed => line
-            .old_no
-            .and_then(|no| app.line_marker(file_index, Side::Old, no.get())),
-        _ => line
-            .new_no
-            .and_then(|no| app.line_marker(file_index, Side::New, no.get())),
-    };
+    let side = line.kind.side();
+    let line_marker =
+        side_number(line, side).and_then(|no| app.line_marker(file_index, side, no.get()));
 
-    let base_bg = if line_marker.is_some() {
-        palette.annotated_line_bg
-    } else {
-        match line.kind {
-            DiffLineKind::Added => palette.add_bg,
-            DiffLineKind::Removed => palette.remove_bg,
-            DiffLineKind::Context => pane_bg,
-        }
-    };
+    let base_bg = line_base_bg(line.kind, line_marker, palette, pane_bg);
     let bg = focus.background(palette, base_bg);
 
     // Bold the highlighted row so the cursor and selection stay legible under a
     // subtle background tint.
     let modifier = focus.modifier();
-
-    let marker_span = Span::styled(
-        format!("{} ", line_marker.map_or(' ', marker_glyph)),
-        Style::default()
-            .fg(palette.marker_open)
-            .bg(bg)
-            .add_modifier(modifier),
-    );
 
     let gutter = format!(
         "{:>4} {:>4} ",
@@ -1322,14 +1353,10 @@ fn render_diff_line(
         line.new_no.map(|n| n.get().to_string()).unwrap_or_default(),
     );
 
-    let (sign, sign_fg) = match line.kind {
-        DiffLineKind::Added => ('+', palette.sign_add),
-        DiffLineKind::Removed => ('-', palette.sign_remove),
-        DiffLineKind::Context => (' ', palette.gutter_fg),
-    };
+    let (sign, sign_fg) = sign_for(line.kind, palette);
 
     let mut spans = vec![
-        marker_span,
+        marker_span(line_marker, bg, modifier, palette),
         Span::styled(
             gutter,
             Style::default().fg(sign_fg).bg(bg).add_modifier(modifier),
@@ -1431,22 +1458,10 @@ fn render_cell(
         )];
     };
 
-    let number = match side {
-        Side::Old => line.old_no,
-        Side::New => line.new_no,
-    };
-
+    let number = side_number(line, side);
     let line_marker = number.and_then(|no| app.line_marker(*file_index, side, no.get()));
 
-    let base_bg = if line_marker.is_some() {
-        palette.annotated_line_bg
-    } else {
-        match line.kind {
-            DiffLineKind::Added => palette.add_bg,
-            DiffLineKind::Removed => palette.remove_bg,
-            DiffLineKind::Context => pane_bg,
-        }
-    };
+    let base_bg = line_base_bg(line.kind, line_marker, palette, pane_bg);
 
     let focus = RowFocus::resolve(
         focused,
@@ -1457,20 +1472,10 @@ fn render_cell(
     let bg = focus.background(palette, base_bg);
     let modifier = focus.modifier();
 
-    let (sign, sign_fg) = match line.kind {
-        DiffLineKind::Added => ('+', palette.sign_add),
-        DiffLineKind::Removed => ('-', palette.sign_remove),
-        DiffLineKind::Context => (' ', palette.gutter_fg),
-    };
+    let (sign, sign_fg) = sign_for(line.kind, palette);
 
     let mut spans = vec![
-        Span::styled(
-            format!("{} ", line_marker.map_or(' ', marker_glyph)),
-            Style::default()
-                .fg(palette.marker_open)
-                .bg(bg)
-                .add_modifier(modifier),
-        ),
+        marker_span(line_marker, bg, modifier, palette),
         Span::styled(
             format!(
                 "{:>4} ",
@@ -1533,19 +1538,9 @@ fn fit_spans(spans: Vec<Span<'static>>, width: usize, bg: Color) -> Vec<Span<'st
     out
 }
 
-/// Pad a row's spans to `width` so its background fills the line.
+/// Pad (or truncate) a row's spans to `width` so its background fills the line.
 fn padded_row(spans: Vec<Span<'static>>, width: usize, bg: Color) -> Line<'static> {
-    let mut spans = spans;
-    let used: usize = spans.iter().map(|s| s.content.chars().count()).sum();
-
-    if used < width {
-        spans.push(Span::styled(
-            " ".repeat(width - used),
-            Style::default().bg(bg),
-        ));
-    }
-
-    Line::from(spans)
+    Line::from(fit_spans(spans, width, bg))
 }
 
 /// The horizontal rule separating the band from the diff, with a `┴` where the
