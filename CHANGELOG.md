@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `n`/`p` (next/previous change) now stop separately on the removed and added
+  side of a modification instead of only landing on the removal, so both sides
+  can be annotated directly without an extra `j` — most noticeable in split view.
+
 ## [0.8.1]
 
 ### Fixed

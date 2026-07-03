@@ -788,6 +788,32 @@ impl Limiter {
     }
 
     #[test]
+    fn next_change_stops_on_each_side_of_a_modification() {
+        use super::app::Row;
+        use crate::vcs::DiffLineKind;
+
+        let repo = modification_fixture();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::SelectCommit);
+
+        // First stop lands on the removed side.
+        app.apply(keymap::Action::NextChange);
+        assert!(
+            matches!(&app.rows[app.diff_cursor], Row::Line { line, .. } if matches!(line.kind, DiffLineKind::Removed)),
+            "first jump stops on the removed side",
+        );
+
+        // The next stop crosses into the added side of the same modification
+        // instead of skipping to the next file's change.
+        app.apply(keymap::Action::NextChange);
+        assert!(
+            matches!(&app.rows[app.diff_cursor], Row::Line { line, .. } if matches!(line.kind, DiffLineKind::Added)),
+            "second jump stops on the added side",
+        );
+    }
+
+    #[test]
     fn half_page_uses_the_recorded_viewport_height() {
         let repo = fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();

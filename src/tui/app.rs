@@ -1059,17 +1059,23 @@ impl App {
     }
 
     /// True when `index` begins a change section: a changed line whose
-    /// predecessor is not a changed line.
+    /// predecessor is not a changed line of the same kind. A run of removals
+    /// followed by a run of additions counts as two sections so that jumping
+    /// stops on each side, letting a reviewer annotate both.
     fn is_section_start(&self, index: usize) -> bool {
-        self.is_change_line(index) && (index == 0 || !self.is_change_line(index - 1))
+        let kind = self.change_kind(index);
+        kind.is_some() && (index == 0 || self.change_kind(index - 1) != kind)
     }
 
-    /// True when the row at `index` is an added or removed diff line.
-    fn is_change_line(&self, index: usize) -> bool {
-        matches!(
-            self.rows.get(index),
-            Some(Row::Line { line, .. }) if !matches!(line.kind, DiffLineKind::Context)
-        )
+    /// The added/removed kind of the row at `index`, or `None` for context
+    /// lines and non-line rows.
+    fn change_kind(&self, index: usize) -> Option<DiffLineKind> {
+        match self.rows.get(index) {
+            Some(Row::Line { line, .. }) if !matches!(line.kind, DiffLineKind::Context) => {
+                Some(line.kind)
+            }
+            _ => None,
+        }
     }
 
     /// Enter's context action: select a commit (or jump to an annotation) from
