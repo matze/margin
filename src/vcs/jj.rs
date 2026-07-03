@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use super::parse::{FIELD_SEP, parse_diff, parse_log_line};
 use super::{Base, ChangeCommits, CommitDiff, ListingSource, Revision, Revisions, Vcs, VcsError};
@@ -21,41 +20,14 @@ pub struct Backend {
 impl Backend {
     /// Discover the repository containing `start` via `jj root`.
     pub fn discover(start: impl AsRef<Path>) -> Result<Self, VcsError> {
-        let output = Command::new("jj")
-            .current_dir(start.as_ref())
-            .args(["root"])
-            .output()
-            .map_err(|source| VcsError::Spawn { tool: "jj", source })?;
+        let root = super::discover_root("jj", start.as_ref(), &["root"])?;
 
-        if !output.status.success() {
-            return Err(VcsError::NotARepo { tool: "jj" });
-        }
-
-        let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-        Ok(Self {
-            root: PathBuf::from(root),
-        })
+        Ok(Self { root })
     }
 
     /// Run `jj` with `args`, returning stdout on success.
     fn run(&self, args: &[&str]) -> Result<String, VcsError> {
-        let output = Command::new("jj")
-            .current_dir(&self.root)
-            .args(args)
-            .output()
-            .map_err(|source| VcsError::Spawn { tool: "jj", source })?;
-
-        if !output.status.success() {
-            return Err(VcsError::Command {
-                tool: "jj",
-                args: args.iter().map(|a| a.to_string()).collect(),
-                status: output.status.to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-            });
-        }
-
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        super::run_tool("jj", &self.root, args)
     }
 
     /// Resolve a single-commit revset to its change id.

@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use super::parse::{FIELD_SEP, parse_diff, parse_log_line};
 use super::{Base, ChangeCommits, CommitDiff, ListingSource, Revision, Revisions, Vcs, VcsError};
@@ -21,47 +20,14 @@ pub struct Backend {
 impl Backend {
     /// Discover the repository containing `start` via `git rev-parse`.
     pub fn discover(start: impl AsRef<Path>) -> Result<Self, VcsError> {
-        let output = Command::new("git")
-            .current_dir(start.as_ref())
-            .args(["rev-parse", "--show-toplevel"])
-            .output()
-            .map_err(|source| VcsError::Spawn {
-                tool: "git",
-                source,
-            })?;
+        let root = super::discover_root("git", start.as_ref(), &["rev-parse", "--show-toplevel"])?;
 
-        if !output.status.success() {
-            return Err(VcsError::NotARepo { tool: "git" });
-        }
-
-        let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-        Ok(Self {
-            root: PathBuf::from(root),
-        })
+        Ok(Self { root })
     }
 
     /// Run `git` with `args`, returning stdout on success.
     fn run(&self, args: &[&str]) -> Result<String, VcsError> {
-        let output = Command::new("git")
-            .current_dir(&self.root)
-            .args(args)
-            .output()
-            .map_err(|source| VcsError::Spawn {
-                tool: "git",
-                source,
-            })?;
-
-        if !output.status.success() {
-            return Err(VcsError::Command {
-                tool: "git",
-                args: args.iter().map(|a| a.to_string()).collect(),
-                status: output.status.to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-            });
-        }
-
-        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+        super::run_tool("git", &self.root, args)
     }
 
     /// True when `rev` resolves to a commit.

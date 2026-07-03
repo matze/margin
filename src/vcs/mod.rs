@@ -13,7 +13,8 @@ mod git;
 mod jj;
 mod parse;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use jiff::Timestamp;
 
@@ -39,6 +40,49 @@ pub enum VcsError {
     NotARepo { tool: &'static str },
     #[error("failed to parse {what}: {detail}")]
     Parse { what: &'static str, detail: String },
+}
+
+/// Run `tool` with `args` in `dir`, returning stdout on success. A spawn failure
+/// maps to [`VcsError::Spawn`], a non-zero exit to [`VcsError::Command`].
+pub(super) fn run_tool(tool: &'static str, dir: &Path, args: &[&str]) -> Result<String, VcsError> {
+    let output = Command::new(tool)
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .map_err(|source| VcsError::Spawn { tool, source })?;
+
+    if !output.status.success() {
+        return Err(VcsError::Command {
+            tool,
+            args: args.iter().map(|a| a.to_string()).collect(),
+            status: output.status.to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        });
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Run `tool`'s root-printing command in `start`, returning the trimmed root
+/// path. A non-zero exit maps to [`VcsError::NotARepo`].
+pub(super) fn discover_root(
+    tool: &'static str,
+    start: &Path,
+    args: &[&str],
+) -> Result<PathBuf, VcsError> {
+    let output = Command::new(tool)
+        .current_dir(start)
+        .args(args)
+        .output()
+        .map_err(|source| VcsError::Spawn { tool, source })?;
+
+    if !output.status.success() {
+        return Err(VcsError::NotARepo { tool });
+    }
+
+    let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    Ok(PathBuf::from(root))
 }
 
 /// Which commits populate the sidebar (PRD §6).
