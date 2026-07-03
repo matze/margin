@@ -10,7 +10,7 @@ use margin::export::{render_json, status_label, type_label};
 use margin::model::{Actor, AnnotationId, Event, EventKind, RevisionId, Status};
 use margin::review::{ResolvedAnnotation, current_start, resolve_all};
 use margin::store::Store;
-use margin::vcs::{Backend, Base, Kind, Vcs};
+use margin::vcs::{Base, Kind, Vcs};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -51,9 +51,9 @@ fn run_tui(cli: &Cli) -> Result<()> {
 }
 
 /// Discover the backend for the current directory, honoring a `--vcs` override.
-fn discover_backend(forced: Option<Kind>) -> Result<Backend> {
+fn discover_backend(forced: Option<Kind>) -> Result<Box<dyn Vcs>> {
     let cwd = std::env::current_dir().context("reading current directory")?;
-    Backend::discover(&cwd, forced).context("locating a git or jj repository")
+    margin::vcs::discover(&cwd, forced).context("locating a git or jj repository")
 }
 
 /// `margin list`: the agent's read interface. `--json` emits the stable folded
@@ -62,7 +62,7 @@ fn run_list(open_only: bool, json: bool) -> Result<()> {
     let backend = discover_backend(None)?;
     let store = Store::open(backend.root());
 
-    let shown: Vec<ResolvedAnnotation> = resolve_all(&store, backend.root(), &backend)?
+    let shown: Vec<ResolvedAnnotation> = resolve_all(&store, backend.root(), backend.as_ref())?
         .into_iter()
         .filter(|a| !open_only || a.status == Status::Open)
         .collect();

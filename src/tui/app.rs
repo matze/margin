@@ -18,8 +18,8 @@ use crate::model::{
 use crate::review::{ResolvedAnnotation, resolve_all};
 use crate::store::Store;
 use crate::vcs::{
-    Backend, Base, ChangeKind, CommitDiff, DiffLine, DiffLineKind, FileDiff, Hunk, ListingSource,
-    Revision, Vcs,
+    Base, ChangeKind, CommitDiff, DiffLine, DiffLineKind, FileDiff, Hunk, ListingSource, Revision,
+    Vcs,
 };
 
 use super::agent::{self, AgentEvent, AgentScope, Outcome};
@@ -490,7 +490,7 @@ pub struct LineMarker {
 
 /// The whole application.
 pub struct App {
-    backend: Backend,
+    backend: Box<dyn Vcs>,
     repo_root: PathBuf,
     store: Store,
     /// The base the revision list was built from, kept so [`App::reload`] can
@@ -562,7 +562,7 @@ pub struct App {
 impl App {
     /// Build the application: list revisions for `base` and load the first one.
     pub fn new(
-        backend: Backend,
+        backend: Box<dyn Vcs>,
         base: Base,
         theme_mode: ThemeMode,
     ) -> Result<Self, crate::vcs::VcsError> {
@@ -1930,7 +1930,7 @@ impl App {
 
     fn refresh_annotations(&mut self) {
         self.annotations =
-            resolve_all(&self.store, &self.repo_root, &self.backend).unwrap_or_default();
+            resolve_all(&self.store, &self.repo_root, self.backend.as_ref()).unwrap_or_default();
         self.recompute_commit_markers();
         // Record the log's state as of this read so a later out-of-band write is
         // detectable and our own writes (which run through here) do not look

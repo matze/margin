@@ -7,12 +7,12 @@ use std::process::Command;
 
 use margin::model::{CommitId, RepoRelPath, RevisionId};
 use margin::vcs::{
-    Backend, Base, ChangeCommits, ChangeKind, DiffLineKind, Kind, ListingSource, Vcs,
+    Base, ChangeCommits, ChangeKind, DiffLineKind, Kind, ListingSource, Vcs, discover,
 };
 
 /// Discover a forced-git backend for `path`.
-fn git_backend(path: &Path) -> Backend {
-    Backend::discover(path, Some(Kind::Git)).unwrap()
+fn git_backend(path: &Path) -> Box<dyn Vcs> {
+    discover(path, Some(Kind::Git)).unwrap()
 }
 
 /// Run a git command in `dir`, asserting success.

@@ -220,95 +220,17 @@ pub enum Kind {
     Jj,
 }
 
-/// A concrete VCS backend, dispatched statically.
-#[derive(Debug, Clone)]
-pub enum Backend {
-    Git(git::Backend),
-    Jj(jj::Backend),
-}
+/// Select a backend for `start`. `forced` honors `--vcs`/config; otherwise jj is
+/// preferred when a jj repo resolves, falling back to git.
+pub fn discover(start: impl AsRef<Path>, forced: Option<Kind>) -> Result<Box<dyn Vcs>, VcsError> {
+    let start = start.as_ref();
 
-impl Backend {
-    /// Select a backend for `start`. `forced` honors `--vcs`/config; otherwise
-    /// jj is preferred when a jj repo resolves, falling back to git.
-    pub fn discover(start: impl AsRef<Path>, forced: Option<Kind>) -> Result<Self, VcsError> {
-        let start = start.as_ref();
-
-        match forced {
-            Some(Kind::Git) => Ok(Backend::Git(git::Backend::discover(start)?)),
-            Some(Kind::Jj) => Ok(Backend::Jj(jj::Backend::discover(start)?)),
-            None => match jj::Backend::discover(start) {
-                Ok(backend) => Ok(Backend::Jj(backend)),
-                Err(_) => Ok(Backend::Git(git::Backend::discover(start)?)),
-            },
-        }
-    }
-}
-
-impl Vcs for Backend {
-    fn root(&self) -> &Path {
-        match self {
-            Backend::Git(backend) => backend.root(),
-            Backend::Jj(backend) => backend.root(),
-        }
-    }
-
-    fn revisions(&self, base: &Base) -> Result<Revisions, VcsError> {
-        match self {
-            Backend::Git(backend) => backend.revisions(base),
-            Backend::Jj(backend) => backend.revisions(base),
-        }
-    }
-
-    fn diff(&self, revision: &RevisionId) -> Result<CommitDiff, VcsError> {
-        match self {
-            Backend::Git(backend) => backend.diff(revision),
-            Backend::Jj(backend) => backend.diff(revision),
-        }
-    }
-
-    fn file_at(&self, revision: &RevisionId, path: &RepoRelPath) -> Result<String, VcsError> {
-        match self {
-            Backend::Git(backend) => backend.file_at(revision, path),
-            Backend::Jj(backend) => backend.file_at(revision, path),
-        }
-    }
-
-    fn file_at_parent(
-        &self,
-        revision: &RevisionId,
-        path: &RepoRelPath,
-    ) -> Result<String, VcsError> {
-        match self {
-            Backend::Git(backend) => backend.file_at_parent(revision, path),
-            Backend::Jj(backend) => backend.file_at_parent(revision, path),
-        }
-    }
-
-    fn head(&self) -> Result<RevisionId, VcsError> {
-        match self {
-            Backend::Git(backend) => backend.head(),
-            Backend::Jj(backend) => backend.head(),
-        }
-    }
-
-    fn message(&self, revision: &RevisionId) -> Result<String, VcsError> {
-        match self {
-            Backend::Git(backend) => backend.message(revision),
-            Backend::Jj(backend) => backend.message(revision),
-        }
-    }
-
-    fn commit_of(&self, revision: &RevisionId) -> Result<CommitId, VcsError> {
-        match self {
-            Backend::Git(backend) => backend.commit_of(revision),
-            Backend::Jj(backend) => backend.commit_of(revision),
-        }
-    }
-
-    fn change_commits(&self, revision: &RevisionId) -> Result<ChangeCommits, VcsError> {
-        match self {
-            Backend::Git(backend) => backend.change_commits(revision),
-            Backend::Jj(backend) => backend.change_commits(revision),
-        }
+    match forced {
+        Some(Kind::Git) => Ok(Box::new(git::Backend::discover(start)?)),
+        Some(Kind::Jj) => Ok(Box::new(jj::Backend::discover(start)?)),
+        None => match jj::Backend::discover(start) {
+            Ok(backend) => Ok(Box::new(backend)),
+            Err(_) => Ok(Box::new(git::Backend::discover(start)?)),
+        },
     }
 }

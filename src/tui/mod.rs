@@ -29,14 +29,14 @@ use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 
-use crate::vcs::{Backend, Base, Vcs};
+use crate::vcs::{Base, Vcs};
 use agent::AgentEvent;
 use app::Row;
 use highlight::Highlighter;
 
 /// Launch the TUI against `backend`, listing commits per `base`. `theme` is the
 /// explicit `--theme`/config override, if any; otherwise the terminal is queried.
-pub fn run(backend: Backend, base: Base, theme: Option<ThemeMode>) -> Result<()> {
+pub fn run(backend: Box<dyn Vcs>, base: Base, theme: Option<ThemeMode>) -> Result<()> {
     // Resolve the theme before the alternate screen: some terminals (e.g.
     // WezTerm) only answer the OSC 11 background query on the normal screen.
     // Raw mode is needed to read the reply.
@@ -68,7 +68,7 @@ fn resolve_theme(explicit: Option<ThemeMode>) -> ThemeMode {
 
 async fn build_and_run(
     terminal: &mut ratatui::DefaultTerminal,
-    backend: Backend,
+    backend: Box<dyn Vcs>,
     base: Base,
     theme: ThemeMode,
 ) -> Result<()> {
@@ -505,7 +505,7 @@ impl Limiter {
         use crate::store::Store;
 
         let repo = demo_fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), mode).unwrap();
 
         annotate(
@@ -577,7 +577,7 @@ impl Limiter {
     #[test]
     fn renders_without_panicking() {
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
 
@@ -602,7 +602,7 @@ impl Limiter {
             &["commit", "-q", "--allow-empty", "-m", "empty change"],
         );
 
-        let backend = Backend::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
 
@@ -622,7 +622,7 @@ impl Limiter {
     #[ignore = "visual preview; run with --ignored --nocapture"]
     fn dump_preview() {
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         app.apply(keymap::Action::SelectCommit);
@@ -650,7 +650,7 @@ impl Limiter {
         // cursor on it, that visual row must carry the cursor background so the
         // cursor stays visible on non-code lines.
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit); // focus diff, cursor on row 0 (File)
 
@@ -703,7 +703,7 @@ impl Limiter {
         git(path, &["add", "-A"]);
         git(path, &["commit", "-q", "-m", "change"]);
 
-        let backend = Backend::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::NextChange);
@@ -740,7 +740,7 @@ impl Limiter {
         use super::app::Focus;
 
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         // Two annotations on different lines of the same commit.
@@ -775,7 +775,7 @@ impl Limiter {
         use crate::vcs::DiffLineKind;
 
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
 
@@ -790,7 +790,7 @@ impl Limiter {
     #[test]
     fn half_page_uses_the_recorded_viewport_height() {
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
 
@@ -812,7 +812,7 @@ impl Limiter {
     #[test]
     fn select_and_annotate_writes_an_event() {
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         // Focus the diff, move onto an added line, annotate it.
@@ -837,7 +837,7 @@ impl Limiter {
     #[test]
     fn annotating_an_already_annotated_line_edits_in_place() {
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         app.apply(keymap::Action::SelectCommit);
@@ -872,7 +872,7 @@ impl Limiter {
     /// Build an app on the fixture with a single annotation on the first added
     /// line of the feature commit.
     fn app_with_annotation(repo: &Path) -> App {
-        let backend = Backend::discover(repo, Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo, Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         app.apply(keymap::Action::SelectCommit);
@@ -1046,7 +1046,7 @@ impl Limiter {
             .unwrap();
 
         // Reopen via the overview, which focuses the selected annotation.
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         assert_eq!(app.annotations()[0].status, Status::Resolved);
 
@@ -1089,7 +1089,7 @@ impl Limiter {
     #[test]
     fn long_annotation_body_wraps_across_multiple_lines() {
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::Down);
@@ -1130,7 +1130,7 @@ impl Limiter {
     #[test]
     fn editor_paints_the_cursor_under_a_mid_line_character() {
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::Down);
@@ -1166,7 +1166,7 @@ impl Limiter {
     #[test]
     fn editor_seed_quotes_the_annotated_source_line() {
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::NextChange); // land on an added line
@@ -1265,7 +1265,6 @@ impl Limiter {
         use crate::anchor::{CONTEXT_LINES, capture};
         use crate::model::{Actor, AnnotationId, Event, EventKind, LineNumber, RepoRelPath, Side};
         use crate::store::Store;
-        use crate::vcs::Vcs;
 
         // A commit touching two files whose line 1 is identical: a file-blind
         // marker keyed only by line number would light up both.
@@ -1284,7 +1283,7 @@ impl Limiter {
         git(path, &["add", "-A"]);
         git(path, &["commit", "-q", "-m", "Add two files"]);
 
-        let backend = Backend::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
         let revision = backend
             .revisions(&Base::Branch("main".into()))
             .unwrap()
@@ -1317,7 +1316,7 @@ impl Limiter {
             ))
             .unwrap();
 
-        let backend = Backend::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
         let app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         let a_index = app
@@ -1399,7 +1398,7 @@ impl Limiter {
     #[test]
     fn timeline_renders_a_multiline_body() {
         let repo = fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         app.apply(keymap::Action::SelectCommit);
@@ -1476,7 +1475,7 @@ impl Limiter {
     #[test]
     fn split_pairs_removed_and_added_on_one_row() {
         let repo = modification_fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::ToggleSplit);
@@ -1516,7 +1515,7 @@ impl Limiter {
     #[test]
     fn split_divider_runs_unbroken_through_headers_and_empty_space() {
         let repo = modification_fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::ToggleSplit);
@@ -1553,7 +1552,7 @@ impl Limiter {
     #[test]
     fn split_toggles_back_to_an_identical_unified_view() {
         let repo = modification_fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
 
@@ -1579,7 +1578,7 @@ impl Limiter {
     #[test]
     fn split_view_still_renders_annotation_blocks() {
         let repo = modification_fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::NextChange); // lands on the removed "apple" line
@@ -1609,7 +1608,7 @@ impl Limiter {
         use crate::model::Side;
 
         let repo = modification_fixture();
-        let backend = Backend::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::NextChange); // lands on the removed "apple" line
@@ -1678,7 +1677,7 @@ impl Limiter {
     }
 
     fn multi_file_app(repo: &Path) -> App {
-        let backend = Backend::discover(repo, Some(crate::vcs::Kind::Git)).unwrap();
+        let backend = crate::vcs::discover(repo, Some(crate::vcs::Kind::Git)).unwrap();
         App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap()
     }
 
