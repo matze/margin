@@ -841,7 +841,7 @@ impl App {
 
     /// Move the overview cursor and reveal that annotation in the diff.
     fn move_annotations(&mut self, direction: Direction) {
-        let max = self.overview_annotations().len().saturating_sub(1);
+        let max = self.annotations.len().saturating_sub(1);
         self.annotation_cursor = step_index(self.annotation_cursor, direction, max);
         self.reveal_annotation();
     }
@@ -1511,17 +1511,11 @@ impl App {
         }
 
         match self.band {
-            BandView::Annotations if matches!(self.focus, Focus::Band) => self
-                .overview_annotations()
-                .into_iter()
-                .nth(self.annotation_cursor),
+            BandView::Annotations if matches!(self.focus, Focus::Band) => {
+                self.annotations.get(self.annotation_cursor)
+            }
             _ => self.annotation_at_cursor(),
         }
-    }
-
-    /// Annotations in display order, for the sidebar overview.
-    pub fn overview_annotations(&self) -> Vec<&ResolvedAnnotation> {
-        self.annotations.iter().collect()
     }
 
     /// Resolve the current selection to an annotation target. A selection of

@@ -200,7 +200,7 @@ fn band_height(app: &App, total: u16) -> u16 {
             .len()
             .max(app.current_message.lines().count()),
         BandView::Files => app.changed_files().len().max(1),
-        BandView::Annotations => app.overview_annotations().len().max(1),
+        BandView::Annotations => app.annotations().len().max(1),
     };
 
     ((rows + 1) as u16)
@@ -249,7 +249,7 @@ fn render_band(frame: &mut Frame, app: &mut App, area: Rect) {
             render_list_pane(
                 frame,
                 area,
-                &format!("annotations · {}", app.overview_annotations().len()),
+                &format!("annotations · {}", app.annotations().len()),
                 annotation_list_lines(app, app.annotation_cursor, Color::Reset, focused),
                 focused,
                 app.palette,
@@ -450,7 +450,7 @@ fn annotation_list_lines(
     pane_bg: Color,
     focused: bool,
 ) -> Vec<Line<'static>> {
-    let annotations = app.overview_annotations();
+    let annotations = app.annotations();
 
     if annotations.is_empty() {
         return vec![Line::from(Span::styled(
