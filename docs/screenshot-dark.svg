@@ -288,7 +288,7 @@
 <text x="376" y="149" fill="#c0c5ce" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">-&gt;</text>
 <text x="400" y="149" fill="#b48ead" textLength="32" lengthAdjust="spacingAndGlyphs" xml:space="preserve">bool</text>
 <text x="440" y="149" fill="#c0c5ce" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">{</text>
-<text x="72" y="166" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">17</text>
+<text x="72" y="166" fill="#3fb950" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">17</text>
 <text x="96" y="166" fill="#3fb950" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">+</text>
 <text x="168" y="166" fill="#bf616a" textLength="32" lengthAdjust="spacingAndGlyphs" xml:space="preserve">self</text>
 <text x="200" y="166" fill="#c0c5ce" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">.</text>
@@ -315,7 +315,7 @@
 <text x="352" y="217" fill="#6e7681" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">·</text>
 <text x="368" y="217" fill="#bc8cff" font-weight="bold" textLength="24" lengthAdjust="spacingAndGlyphs" xml:space="preserve">esc</text>
 <text x="400" y="217" fill="#6e7681" textLength="48" lengthAdjust="spacingAndGlyphs" xml:space="preserve">cancel</text>
-<text x="72" y="234" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">18</text>
+<text x="72" y="234" fill="#3fb950" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">18</text>
 <text x="96" y="234" fill="#3fb950" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">+</text>
 <text x="32" y="251" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">17</text>
 <text x="72" y="251" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">19</text>
@@ -355,9 +355,9 @@
 <text x="32" y="353" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">23</text>
 <text x="72" y="353" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">25</text>
 <text x="136" y="353" fill="#c0c5ce" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">}</text>
-<text x="72" y="370" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">26</text>
+<text x="72" y="370" fill="#3fb950" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">26</text>
 <text x="96" y="370" fill="#3fb950" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">+</text>
-<text x="72" y="387" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">27</text>
+<text x="72" y="387" fill="#3fb950" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">27</text>
 <text x="96" y="387" fill="#3fb950" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">+</text>
 <text x="136" y="387" fill="#65737e" textLength="24" lengthAdjust="spacingAndGlyphs" xml:space="preserve">///</text>
 <text x="168" y="387" fill="#65737e" textLength="24" lengthAdjust="spacingAndGlyphs" xml:space="preserve">Add</text>
@@ -369,7 +369,7 @@
 <text x="440" y="387" fill="#65737e" textLength="24" lengthAdjust="spacingAndGlyphs" xml:space="preserve">the</text>
 <text x="472" y="387" fill="#65737e" textLength="32" lengthAdjust="spacingAndGlyphs" xml:space="preserve">last</text>
 <text x="512" y="387" fill="#65737e" textLength="40" lengthAdjust="spacingAndGlyphs" xml:space="preserve">call.</text>
-<text x="72" y="404" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">28</text>
+<text x="72" y="404" fill="#3fb950" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">28</text>
 <text x="96" y="404" fill="#3fb950" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">+</text>
 <text x="136" y="404" fill="#b48ead" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">fn</text>
 <text x="160" y="404" fill="#8fa1b3" textLength="48" lengthAdjust="spacingAndGlyphs" xml:space="preserve">refill</text>
@@ -378,7 +378,7 @@
 <text x="256" y="404" fill="#bf616a" textLength="32" lengthAdjust="spacingAndGlyphs" xml:space="preserve">self</text>
 <text x="288" y="404" fill="#c0c5ce" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">)</text>
 <text x="304" y="404" fill="#c0c5ce" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">{</text>
-<text x="72" y="421" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">29</text>
+<text x="72" y="421" fill="#3fb950" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">29</text>
 <text x="96" y="421" fill="#3fb950" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">+</text>
 <text x="168" y="421" fill="#b48ead" textLength="24" lengthAdjust="spacingAndGlyphs" xml:space="preserve">let</text>
 <text x="200" y="421" fill="#c0c5ce" textLength="56" lengthAdjust="spacingAndGlyphs" xml:space="preserve">elapsed</text>
@@ -392,7 +392,7 @@
 <text x="520" y="421" fill="#c0c5ce" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">as</text>
 <text x="544" y="421" fill="#b48ead" textLength="24" lengthAdjust="spacingAndGlyphs" xml:space="preserve">u32</text>
 <text x="568" y="421" fill="#c0c5ce" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">;</text>
-<text x="72" y="438" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">30</text>
+<text x="72" y="438" fill="#3fb950" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">30</text>
 <text x="96" y="438" fill="#3fb950" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">+</text>
 <text x="168" y="438" fill="#bf616a" textLength="32" lengthAdjust="spacingAndGlyphs" xml:space="preserve">self</text>
 <text x="200" y="438" fill="#c0c5ce" textLength="56" lengthAdjust="spacingAndGlyphs" xml:space="preserve">.tokens</text>
@@ -406,7 +406,7 @@
 <text x="496" y="438" fill="#c0c5ce" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">(</text>
 <text x="504" y="438" fill="#bf616a" textLength="32" lengthAdjust="spacingAndGlyphs" xml:space="preserve">self</text>
 <text x="536" y="438" fill="#c0c5ce" textLength="88" lengthAdjust="spacingAndGlyphs" xml:space="preserve">.capacity);</text>
-<text x="72" y="455" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">31</text>
+<text x="72" y="455" fill="#3fb950" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">31</text>
 <text x="96" y="455" fill="#3fb950" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">+</text>
 <text x="168" y="455" fill="#bf616a" textLength="32" lengthAdjust="spacingAndGlyphs" xml:space="preserve">self</text>
 <text x="200" y="455" fill="#c0c5ce" textLength="40" lengthAdjust="spacingAndGlyphs" xml:space="preserve">.last</text>
@@ -418,7 +418,7 @@
 <text x="296" y="472" fill="#c9d1d9" textLength="40" lengthAdjust="spacingAndGlyphs" xml:space="preserve">drops</text>
 <text x="344" y="472" fill="#c9d1d9" textLength="80" lengthAdjust="spacingAndGlyphs" xml:space="preserve">sub-second</text>
 <text x="432" y="472" fill="#c9d1d9" textLength="56" lengthAdjust="spacingAndGlyphs" xml:space="preserve">refills</text>
-<text x="72" y="489" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">32</text>
+<text x="72" y="489" fill="#3fb950" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">32</text>
 <text x="96" y="489" fill="#3fb950" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">+</text>
 <text x="136" y="489" fill="#c0c5ce" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">}</text>
 <text x="32" y="506" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">24</text>
