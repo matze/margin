@@ -766,7 +766,6 @@ impl App {
             Action::ToggleSplit => self.toggle_view(),
             Action::SelectCommit => self.select_commit(),
             Action::Confirm => self.confirm(),
-            Action::Space => self.start_selection(),
             Action::StartSelection => self.start_selection(),
             Action::Annotate => self.begin_annotation(),
             Action::ViewCommits => self.show_view(BandView::Commits),

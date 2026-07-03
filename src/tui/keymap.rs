@@ -29,8 +29,6 @@ pub enum Action {
     Annotate,
     /// Context action of Enter: select a commit (sidebar) or annotate (diff).
     Confirm,
-    /// Context action of Space: toggle a visual selection in the diff.
-    Space,
     /// Cycle the top band through its views (commits → files → annotations).
     CycleView,
     /// Show a specific band view directly.
@@ -132,7 +130,7 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('s') => Some(Action::ToggleSplit),
         KeyCode::Char('l') | KeyCode::Right => Some(Action::SelectCommit),
         KeyCode::Enter => Some(Action::Confirm),
-        KeyCode::Char(' ') => Some(Action::Space),
+        KeyCode::Char(' ') => Some(Action::StartSelection),
         KeyCode::Char('h') | KeyCode::Left | KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Char('v') => Some(Action::StartSelection),
         KeyCode::Char('a') => Some(Action::Annotate),
@@ -163,6 +161,18 @@ mod tests {
         assert_eq!(map(press(KeyCode::Down), false), Some(Action::Down));
         assert_eq!(map(press(KeyCode::Char('k')), false), Some(Action::Up));
         assert_eq!(map(press(KeyCode::Up), false), Some(Action::Up));
+    }
+
+    #[test]
+    fn space_and_v_both_start_selection() {
+        assert_eq!(
+            map(press(KeyCode::Char(' ')), false),
+            Some(Action::StartSelection)
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('v')), false),
+            Some(Action::StartSelection)
+        );
     }
 
     #[test]
