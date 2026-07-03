@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0]
+
 ### Changed
 
 - Inline annotations now show their type as a single-width glyph in the gutter
