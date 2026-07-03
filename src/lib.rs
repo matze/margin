@@ -5,7 +5,6 @@
 //! so it can be exercised entirely with unit and fixture tests.
 
 pub mod anchor;
-pub mod config;
 pub mod export;
 pub mod model;
 pub mod review;

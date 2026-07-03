@@ -220,17 +220,6 @@ pub enum Kind {
     Jj,
 }
 
-impl Kind {
-    /// Parse a `--vcs` / config `vcs` value; unknown values yield `None`.
-    pub fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "git" => Some(Kind::Git),
-            "jj" => Some(Kind::Jj),
-            _ => None,
-        }
-    }
-}
-
 /// A concrete VCS backend, dispatched statically.
 #[derive(Debug, Clone)]
 pub enum Backend {

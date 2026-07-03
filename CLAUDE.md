@@ -16,8 +16,8 @@ commit's diff; a coding agent consumes the annotations through the `margin` CLI
 - `tui/` — `app.rs` state + dispatch, `ui.rs` rendering, `keymap.rs` key→action,
   `theme.rs` palette. Built on ratatui; rendered headlessly in tests via
   `TestBackend`.
-- `anchor/`, `review/`, `export/`, `config/` — re-anchoring, resolution, the
-  `list --json` projection (`export/render_json`), `.margin/config.toml`.
+- `anchor/`, `review/`, `export/` — re-anchoring, resolution, the
+  `list --json` projection (`export/render_json`).
 
 ## Conventions
 
