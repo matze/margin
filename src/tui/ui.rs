@@ -16,7 +16,7 @@ use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 use std::ops::Range;
 
 use crate::export::type_label;
-use crate::model::{Anchor, Event, EventKind, LineNumber, Side};
+use crate::model::{Anchor, AnnotationType, Event, EventKind, LineNumber, Side};
 use crate::review::{ResolvedAnnotation, RevisionState};
 use crate::vcs::{ChangeKind, DiffLine, DiffLineKind, ListingSource};
 
@@ -1020,6 +1020,20 @@ fn editor_side(app: &App, editor: &super::app::Editor) -> Side {
     }
 }
 
+/// Single-width glyph denoting an annotation's type in the gutter, or the
+/// untyped-note marker when it has none. Kept width-1 so it doesn't disturb
+/// gutter alignment; the full word remains the `list --json` contract.
+fn type_glyph(annotation_type: Option<AnnotationType>) -> char {
+    match annotation_type {
+        None => '◦',
+        Some(AnnotationType::Fix) => '✗',
+        Some(AnnotationType::Question) => '?',
+        Some(AnnotationType::Suggestion) => '✎',
+        Some(AnnotationType::Nit) => '·',
+        Some(AnnotationType::Praise) => '★',
+    }
+}
+
 /// A compact, read-only inline block for an annotation. Its left bar sits in the
 /// gutter column and closes (`└`) the bracket opened by the annotated lines
 /// above; the type label occupies the gutter region so the body text lines up
@@ -1033,7 +1047,7 @@ fn annotation_block(
     let annotation = &resolved.annotation;
     let bar_color = palette.marker_open;
     let bg = palette.annotation_bg;
-    let kind = annotation.annotation_type.map(type_label).unwrap_or("note");
+    let kind = type_glyph(annotation.annotation_type);
 
     let body_lines = wrap_text(&annotation.body, layout.text_width(width));
     let last = body_lines.len() - 1;
@@ -1045,7 +1059,7 @@ fn annotation_block(
             let bracket = if index == last { '└' } else { '│' };
             // The bracket takes 2 columns; the type tag fills the rest of the
             // gutter region so body text starts at the content column.
-            let tag = if index == 0 { kind } else { "" };
+            let tag = if index == 0 { kind } else { ' ' };
             let gutter = format!("{tag:<width$}", width = layout.indent - 2);
 
             layout.finish(
@@ -1074,7 +1088,11 @@ fn editor_block(
 ) -> Vec<Line<'static>> {
     let bg = palette.annotation_bg;
     let bar_color = palette.marker_open;
-    let kind = editor.annotation_type.map(type_label).unwrap_or("none");
+    let kind = format!(
+        "{} {}",
+        type_glyph(editor.annotation_type),
+        editor.annotation_type.map(type_label).unwrap_or("note")
+    );
 
     let title = match &editor.mode {
         EditorMode::Create(target) => format!(

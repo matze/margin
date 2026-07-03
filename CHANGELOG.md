@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Inline annotations now show their type as a single-width glyph in the gutter
+  (fix `✗`, question `?`, suggestion `✎`, nit `·`, praise `★`, untyped note `◦`)
+  instead of the spelled-out word, which read as noise next to the body. The
+  editor's `type:` field pairs the glyph with the word so the mapping stays
+  discoverable; `list --json` keeps the full word as the agent contract.
 - `n`/`p` (next/previous change) now stop separately on the removed and added
   side of a modification instead of only landing on the removal, so both sides
   can be annotated directly without an extra `j` — most noticeable in split view.
