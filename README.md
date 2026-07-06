@@ -16,13 +16,13 @@ lines or ranges, and hand them to a coding agent through a small CLI.
 
 **Pre-built binaries** are available on the [releases
 page](https://github.com/matze/margin/releases) and can be placed anywhere on
-`$PATH`. *[binge](https://github.com/matze/binge)* automates this:
+`$PATH`. [binge](https://github.com/matze/binge) automates this:
 
 ```sh
-binge matze/margin
+binge install matze/margin
 ```
 
-**Build from source** (requires a Rust toolchain):
+**Build from source** with an existing Rust toolchain:
 
 ```sh
 cargo install --git https://github.com/matze/margin
@@ -133,20 +133,20 @@ margin install-skill                      # install the agent skill into ~/.clau
 (status, re-anchored location, snippet), so the agent never touches the raw
 NDJSON.
 
-Under jj, each annotation also reports a `revision_state` — `unchanged`,
-`amended`, `divergent`, or `abandoned` — tracking the annotated change across
+Under jj, each annotation also reports a `revision_state` (`unchanged`,
+`amended`, `divergent`, or `abandoned`) tracking the annotated change across
 amend/rebase via its change id; `amended` adds `current_commit`. The field is
 omitted on git, which has no stable change identity across history edits, so its
 presence signals jj change tracking is in effect.
 
 The same handoff can be triggered from inside the TUI (`c` / `C`), which spawns
 `claude -p … --output-format stream-json --permission-mode bypassPermissions` in
-the repo and renders its streamed events. The session runs non-interactively —
-it must edit files and run `margin status` without a prompt to answer — so it
-acts on your working tree autonomously; review the result as you would any agent
-run. It inherits the environment, so `CLAUDE_CONFIG_DIR` and `PATH` reach the
-agent and it finds the installed skill; set `MARGIN_AGENT_CMD` to run a different
-binary or a stub.
+the repo and renders its streamed events. The session runs non-interactively
+because it must edit files and run `margin status` without a prompt to answer.
+Thus it acts on your working tree autonomously, review the result as you would
+any agent run. It inherits the environment, so `CLAUDE_CONFIG_DIR` and `PATH`
+reach the agent and it finds the installed skill; set `MARGIN_AGENT_CMD` to run
+a different binary or a stub.
 
 ## Build
 
