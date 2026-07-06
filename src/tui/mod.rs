@@ -1601,6 +1601,122 @@ impl Limiter {
         assert_eq!(unified, back, "toggling back reproduces the unified view");
     }
 
+    /// A feature branch adding one line far wider than any sane pane, tagged
+    /// `WRAPSTART`…`WRAPEND` so a test can spot both ends in the rendered buffer.
+    fn long_line_fixture() -> tempfile::TempDir {
+        let repo = tempfile::tempdir().unwrap();
+        let path = repo.path();
+        git(path, &["init", "-q", "-b", "main"]);
+        git(path, &["config", "user.email", "t@example.com"]);
+        git(path, &["config", "user.name", "T"]);
+        std::fs::write(path.join("base.txt"), "base\n").unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "base"]);
+
+        git(path, &["checkout", "-q", "-b", "feature"]);
+        let long = format!("let message = \"WRAPSTART {} WRAPEND\";\n", "x".repeat(120));
+        std::fs::write(path.join("long.rs"), long).unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "Add a long line"]);
+
+        repo
+    }
+
+    /// The fixed gutter width (marker + line numbers + sign) preceding a unified
+    /// diff line's content; continuation lines are blank across it.
+    const UNIFIED_GUTTER: usize = 13;
+
+    /// The rendered rows with `TestBackend`'s per-row `"…"` quoting stripped, so
+    /// column indices line up with the actual buffer.
+    fn content_rows(terminal: &Terminal<TestBackend>) -> Vec<String> {
+        terminal
+            .backend()
+            .to_string()
+            .lines()
+            .map(|line| {
+                line.strip_prefix('"')
+                    .and_then(|inner| inner.strip_suffix('"'))
+                    .unwrap_or(line)
+                    .to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn unified_soft_wraps_a_long_line() {
+        let repo = long_line_fixture();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::SelectCommit);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+        let rows = content_rows(&terminal);
+
+        let start = rows
+            .iter()
+            .position(|l| l.contains("WRAPSTART"))
+            .expect("the line's head is rendered");
+        let end = rows
+            .iter()
+            .position(|l| l.contains("WRAPEND"))
+            .expect("the line's tail is rendered, not truncated away");
+
+        assert!(end > start, "the tail wraps onto a later row");
+
+        // The head row carries a line number in its gutter; the continuation row
+        // is blank across the gutter so its text aligns under the content column.
+        let head_gutter: String = rows[start].chars().take(UNIFIED_GUTTER).collect();
+        let cont_gutter: String = rows[end].chars().take(UNIFIED_GUTTER).collect();
+        assert!(
+            head_gutter.contains(char::is_numeric),
+            "head row shows a line number: {head_gutter:?}"
+        );
+        assert!(
+            cont_gutter.chars().all(|c| c == ' '),
+            "continuation row is gutter-blank: {cont_gutter:?}"
+        );
+    }
+
+    #[test]
+    fn split_soft_wraps_a_long_line() {
+        let repo = long_line_fixture();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::SelectCommit);
+        app.apply(keymap::Action::ToggleSplit);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+        let rows = content_rows(&terminal);
+
+        let start = rows
+            .iter()
+            .position(|l| l.contains("WRAPSTART"))
+            .expect("the line's head is rendered");
+        let end = rows
+            .iter()
+            .position(|l| l.contains("WRAPEND"))
+            .expect("the line's tail is rendered, not truncated away");
+
+        assert!(end > start, "the tail wraps onto a later row");
+
+        // A pure addition renders in the right cell: both ends sit right of the
+        // divider that starts each row.
+        let divider = rows[start].find('│').expect("split row has a divider");
+        assert!(
+            rows[start].find("WRAPSTART").unwrap() > divider
+                && rows[end].find("WRAPEND").unwrap() > divider,
+            "wrapped text stays in the right cell"
+        );
+    }
+
     #[test]
     fn split_view_still_renders_annotation_blocks() {
         let repo = modification_fixture();

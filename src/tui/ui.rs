@@ -611,7 +611,7 @@ fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area
     // Keep the editor (while open) or the cursor within the viewport, counting
     // the inline attachment lines that sit between the scroll top and it.
     let anchor_row = editor_anchor_row(app).unwrap_or(app.diff_cursor);
-    adjust_diff_top(app, height, &screen, &attachments, anchor_row);
+    adjust_diff_top(app, height, width, &screen, &attachments, anchor_row);
 
     let highlighting = if app.rows.len() <= HIGHLIGHT_ROW_CAP {
         Highlighting::Syntax
@@ -642,7 +642,7 @@ fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area
             break;
         }
 
-        lines.push(render_screen_row(
+        for line in render_screen_row(
             app,
             highlighter,
             screen_row,
@@ -652,7 +652,13 @@ fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area
             lo,
             hi,
             highlighting,
-        ));
+        ) {
+            if lines.len() >= height {
+                break;
+            }
+
+            lines.push(line);
+        }
 
         for row in covered_rows(screen_row) {
             if let Some(block) = attachments.get(&row) {
@@ -748,7 +754,7 @@ fn render_screen_row(
     lo: usize,
     hi: usize,
     highlighting: Highlighting,
-) -> Line<'static> {
+) -> Vec<Line<'static>> {
     match screen_row {
         ScreenRow::Full(index) => {
             let focus = RowFocus::resolve(
@@ -756,7 +762,7 @@ fn render_screen_row(
                 *index == app.diff_cursor,
                 app.selecting() && (lo..=hi).contains(index),
             );
-            let line = render_row(
+            let lines = render_row(
                 app,
                 highlighter,
                 &app.rows[*index],
@@ -767,13 +773,18 @@ fn render_screen_row(
             );
 
             match app.view {
-                DiffView::Split => overlay_divider(line, width.saturating_sub(1) / 2, app.palette),
-                DiffView::Unified => line,
+                DiffView::Split => lines
+                    .into_iter()
+                    .map(|line| overlay_divider(line, width.saturating_sub(1) / 2, app.palette))
+                    .collect(),
+                DiffView::Unified => lines,
             }
         }
         ScreenRow::Split { left, right } => {
             let cell_width = width.saturating_sub(1) / 2;
-            let mut spans = render_cell(
+            let right_width = width.saturating_sub(cell_width + 1);
+
+            let left_lines = render_cell(
                 app,
                 highlighter,
                 *left,
@@ -785,23 +796,40 @@ fn render_screen_row(
                 hi,
                 highlighting,
             );
-            spans.push(Span::styled(
-                "│",
-                Style::default().fg(app.palette.gutter_fg).bg(pane_bg),
-            ));
-            spans.extend(render_cell(
+            let right_lines = render_cell(
                 app,
                 highlighter,
                 *right,
                 Side::New,
-                width.saturating_sub(cell_width + 1),
+                right_width,
                 pane_bg,
                 focused,
                 lo,
                 hi,
                 highlighting,
-            ));
-            Line::from(spans)
+            );
+
+            let divider = Span::styled("│", Style::default().fg(app.palette.gutter_fg).bg(pane_bg));
+            let blank_cell =
+                |cols: usize| Span::styled(" ".repeat(cols), Style::default().bg(pane_bg));
+            let rows = left_lines.len().max(right_lines.len());
+
+            (0..rows)
+                .map(|row| {
+                    let mut spans = left_lines
+                        .get(row)
+                        .map(|line| line.spans.clone())
+                        .unwrap_or_else(|| vec![blank_cell(cell_width)]);
+                    spans.push(divider.clone());
+
+                    match right_lines.get(row) {
+                        Some(line) => spans.extend(line.spans.clone()),
+                        None => spans.push(blank_cell(right_width)),
+                    }
+
+                    Line::from(spans)
+                })
+                .collect()
         }
     }
 }
@@ -846,6 +874,7 @@ fn row_of_line(app: &App, file_index: usize, side: Side, line_no: u32) -> Option
 fn adjust_diff_top(
     app: &mut App,
     height: usize,
+    width: usize,
     screen: &[ScreenRow],
     attachments: &Attachments,
     anchor_row: usize,
@@ -860,7 +889,7 @@ fn adjust_diff_top(
     while top < anchor {
         let used: usize = screen[top..=anchor]
             .iter()
-            .map(|screen_row| screen_height(screen_row, attachments))
+            .map(|screen_row| screen_height(app, screen_row, width, attachments))
             .sum();
 
         if used <= height {
@@ -873,15 +902,56 @@ fn adjust_diff_top(
     app.diff_top = screen[top].anchor_row();
 }
 
-/// The on-screen height of a screen row: its single line plus any inline
-/// attachment lines hanging beneath the rows it draws.
-fn screen_height(screen_row: &ScreenRow, attachments: &Attachments) -> usize {
+/// The on-screen height of a screen row: its soft-wrapped visual lines plus any
+/// inline attachment lines hanging beneath the rows it draws.
+fn screen_height(
+    app: &App,
+    screen_row: &ScreenRow,
+    width: usize,
+    attachments: &Attachments,
+) -> usize {
     let extra: usize = covered_rows(screen_row)
         .iter()
         .map(|row| attachments.get(row).map_or(0, Vec::len))
         .sum();
 
-    1 + extra
+    base_visual_height(app, screen_row, width) + extra
+}
+
+/// The number of soft-wrapped visual lines a screen row's own content occupies
+/// (excluding inline attachments), matching what [`render_screen_row`] emits.
+fn base_visual_height(app: &App, screen_row: &ScreenRow, width: usize) -> usize {
+    match screen_row {
+        ScreenRow::Full(index) => match app.rows.get(*index) {
+            Some(Row::Line { line, .. }) => wrap_count(
+                line.content.chars().count(),
+                width.saturating_sub(UNIFIED_PREFIX_COLS),
+            ),
+            _ => 1,
+        },
+        ScreenRow::Split { left, right } => {
+            let cell_width = width.saturating_sub(1) / 2;
+            let right_width = width.saturating_sub(cell_width + 1);
+
+            cell_visual_height(app, *left, cell_width).max(cell_visual_height(
+                app,
+                *right,
+                right_width,
+            ))
+        }
+    }
+}
+
+/// The soft-wrapped visual-line count of one split cell (one for a blank cell or
+/// a non-line row).
+fn cell_visual_height(app: &App, row: Option<usize>, width: usize) -> usize {
+    match row.and_then(|index| app.rows.get(index)) {
+        Some(Row::Line { line, .. }) => wrap_count(
+            line.content.chars().count(),
+            width.saturating_sub(CELL_PREFIX_COLS),
+        ),
+        _ => 1,
+    }
 }
 
 /// Inline lines to render after each diff row, keyed by row index: annotation
@@ -1221,7 +1291,7 @@ fn render_row(
     pane_bg: Color,
     focus: RowFocus,
     highlighting: Highlighting,
-) -> Line<'static> {
+) -> Vec<Line<'static>> {
     let palette = app.palette;
 
     match row {
@@ -1229,7 +1299,7 @@ fn render_row(
             // Headers track only the cursor, not the selection span that may
             // cross them.
             let bg = focus.cursor_background(palette, pane_bg);
-            padded_row(
+            vec![padded_row(
                 vec![Span::styled(
                     format!(" ▸ {} {label}", change_glyph(*change)),
                     Style::default()
@@ -1239,7 +1309,7 @@ fn render_row(
                 )],
                 width,
                 bg,
-            )
+            )]
         }
 
         Row::Hunk {
@@ -1254,7 +1324,7 @@ fn render_row(
             let text = format!(
                 "@@ -{old_start},{old_count} +{new_start},{new_count} @@ {section}  (± context)"
             );
-            padded_row(
+            vec![padded_row(
                 vec![Span::styled(
                     text,
                     Style::default()
@@ -1264,7 +1334,7 @@ fn render_row(
                 )],
                 width,
                 bg,
-            )
+            )]
         }
 
         Row::Line {
@@ -1351,7 +1421,7 @@ fn render_diff_line(
     pane_bg: Color,
     focus: RowFocus,
     highlighting: Highlighting,
-) -> Line<'static> {
+) -> Vec<Line<'static>> {
     let palette = app.palette;
 
     let side = line.kind.side();
@@ -1373,7 +1443,7 @@ fn render_diff_line(
 
     let (sign, sign_fg) = sign_for(line.kind, palette);
 
-    let mut spans = vec![
+    let prefix = vec![
         marker_span(line_marker, bg, modifier, palette),
         Span::styled(
             gutter,
@@ -1385,7 +1455,7 @@ fn render_diff_line(
         ),
     ];
 
-    spans.extend(content_spans(
+    let content = content_spans(
         highlighter,
         extension,
         line,
@@ -1396,9 +1466,12 @@ fn render_diff_line(
         line_marker,
         modifier,
         highlighting,
-    ));
+    );
 
-    padded_row(spans, width, bg)
+    wrap_spans(prefix, content, UNIFIED_PREFIX_COLS, width, bg)
+        .into_iter()
+        .map(Line::from)
+        .collect()
 }
 
 /// The styled content spans for a diff line: the syntax-highlighted (or plain)
@@ -1453,14 +1526,18 @@ fn render_cell(
     lo: usize,
     hi: usize,
     highlighting: Highlighting,
-) -> Vec<Span<'static>> {
+) -> Vec<Line<'static>> {
     let palette = app.palette;
 
-    let Some(row_index) = row else {
-        return vec![Span::styled(
+    let blank = || {
+        vec![Line::from(Span::styled(
             " ".repeat(width),
             Style::default().bg(pane_bg),
-        )];
+        ))]
+    };
+
+    let Some(row_index) = row else {
+        return blank();
     };
 
     let Some(Row::Line {
@@ -1470,10 +1547,7 @@ fn render_cell(
         emphasis,
     }) = app.rows.get(row_index)
     else {
-        return vec![Span::styled(
-            " ".repeat(width),
-            Style::default().bg(pane_bg),
-        )];
+        return blank();
     };
 
     let number = side_number(line, side);
@@ -1492,7 +1566,7 @@ fn render_cell(
 
     let (sign, sign_fg) = sign_for(line.kind, palette);
 
-    let mut spans = vec![
+    let prefix = vec![
         marker_span(line_marker, bg, modifier, palette),
         Span::styled(
             format!(
@@ -1507,7 +1581,7 @@ fn render_cell(
         ),
     ];
 
-    spans.extend(content_spans(
+    let content = content_spans(
         highlighter,
         extension,
         line,
@@ -1518,9 +1592,99 @@ fn render_cell(
         line_marker,
         modifier,
         highlighting,
-    ));
+    );
 
-    fit_spans(spans, width, bg)
+    wrap_spans(prefix, content, CELL_PREFIX_COLS, width, bg)
+        .into_iter()
+        .map(Line::from)
+        .collect()
+}
+
+/// The annotation-marker gutter width (glyph + space).
+const MARKER_COLS: usize = 2;
+/// The +/- sign column.
+const SIGN_COLS: usize = 1;
+/// The unified line-number gutter: `"{:>4} {:>4} "`.
+const UNIFIED_GUTTER_COLS: usize = 10;
+/// A split cell's line-number gutter: `"{:>4} "`.
+const CELL_GUTTER_COLS: usize = 5;
+/// Columns before a unified diff line's content, repeated as the indent on its
+/// soft-wrapped continuation lines.
+const UNIFIED_PREFIX_COLS: usize = MARKER_COLS + UNIFIED_GUTTER_COLS + SIGN_COLS;
+/// Columns before a split cell's content, repeated as its wrap indent.
+const CELL_PREFIX_COLS: usize = MARKER_COLS + CELL_GUTTER_COLS + SIGN_COLS;
+
+/// The number of visual lines `content_len` characters occupy when soft-wrapped
+/// into `content_width`-column runs (at least one, even when empty or unwrappable).
+fn wrap_count(content_len: usize, content_width: usize) -> usize {
+    if content_width == 0 {
+        1
+    } else {
+        content_len.div_ceil(content_width).max(1)
+    }
+}
+
+/// Soft-wrap `content` beneath a fixed `prefix` gutter into visual lines of
+/// exactly `width` columns. The first line carries `prefix`; every continuation
+/// line repeats a blank `prefix_width`-column indent (filled with `bg`) so the
+/// wrapped text stays aligned under the content column. The last line is padded
+/// to `width` with `bg`. Falls back to a single truncated line when no content
+/// column is left.
+fn wrap_spans(
+    prefix: Vec<Span<'static>>,
+    content: Vec<Span<'static>>,
+    prefix_width: usize,
+    width: usize,
+    bg: Color,
+) -> Vec<Vec<Span<'static>>> {
+    let content_width = width.saturating_sub(prefix_width);
+
+    if content_width == 0 {
+        let mut all = prefix;
+        all.extend(content);
+        return vec![fit_spans(all, width, bg)];
+    }
+
+    let mut chunks: Vec<Vec<Span<'static>>> = Vec::new();
+    let mut current: Vec<Span<'static>> = Vec::new();
+    let mut current_len = 0;
+
+    for span in content {
+        let chars: Vec<char> = span.content.chars().collect();
+        let mut offset = 0;
+
+        while offset < chars.len() {
+            if current_len == content_width {
+                chunks.push(std::mem::take(&mut current));
+                current_len = 0;
+            }
+
+            let take = (content_width - current_len).min(chars.len() - offset);
+            let piece: String = chars[offset..offset + take].iter().collect();
+            current.push(Span::styled(piece, span.style));
+            current_len += take;
+            offset += take;
+        }
+    }
+
+    chunks.push(current);
+
+    let indent = Span::styled(" ".repeat(prefix_width), Style::default().bg(bg));
+
+    chunks
+        .into_iter()
+        .enumerate()
+        .map(|(index, chunk)| {
+            let mut line = if index == 0 {
+                prefix.clone()
+            } else {
+                vec![indent.clone()]
+            };
+            line.extend(chunk);
+
+            fit_spans(line, width, bg)
+        })
+        .collect()
 }
 
 /// Truncate `spans` to at most `width` columns (cutting mid-span if needed), then
@@ -1889,7 +2053,7 @@ fn annotation_screen_span(app: &App, anchor: &Anchor, width: usize) -> Option<(u
     let mut end = None;
 
     for screen_row in &screen[top..] {
-        let height = screen_height(screen_row, &attachments);
+        let height = screen_height(app, screen_row, width, &attachments);
 
         if start.is_none() && screen_row.covers(start_row) {
             start = Some(offset);
