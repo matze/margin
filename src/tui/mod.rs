@@ -36,34 +36,15 @@ use highlight::Highlighter;
 
 /// Launch the TUI against `backend`, listing commits per `base`. `theme` is the
 /// explicit `--theme`/config override, if any; otherwise the terminal is queried.
-pub fn run(backend: Box<dyn Vcs>, base: Base, theme: Option<ThemeMode>) -> Result<()> {
+pub fn run(backend: Box<dyn Vcs>, base: Base) -> Result<()> {
     // Resolve the theme before the alternate screen: some terminals (e.g.
     // WezTerm) only answer the OSC 11 background query on the normal screen.
     // Raw mode is needed to read the reply.
-    let theme = resolve_theme(theme);
-
+    let theme = ThemeMode::default();
     let mut terminal = ratatui::init();
     let result = future::block_on(build_and_run(&mut terminal, backend, base, theme));
     ratatui::restore();
     result
-}
-
-/// Resolve the theme, enabling raw mode for the terminal query when no explicit
-/// choice short-circuits it. Runs before [`ratatui::init`] enters the alternate
-/// screen.
-fn resolve_theme(explicit: Option<ThemeMode>) -> ThemeMode {
-    if explicit.is_some() {
-        return ThemeMode::resolve(explicit);
-    }
-
-    let raw_enabled = enable_raw_mode().is_ok();
-    let theme = ThemeMode::resolve(explicit);
-
-    if raw_enabled {
-        let _ = disable_raw_mode();
-    }
-
-    theme
 }
 
 async fn build_and_run(

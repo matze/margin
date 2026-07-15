@@ -24,6 +24,7 @@ use std::os::fd::{AsRawFd, RawFd};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::style::Color;
 
 /// Whether to render for a light or dark terminal background.
@@ -34,15 +35,21 @@ pub enum ThemeMode {
 }
 
 impl ThemeMode {
-    /// Resolve the effective mode from an optional explicit choice, then the
-    /// terminal's reported background, then `COLORFGBG`, then dark. Must be
-    /// called with the terminal in raw mode so the OSC 11 and DA1 replies can be
+    /// Resolve the effective mode from the terminal's reported background, then `COLORFGBG`, then
+    /// dark. Must be called with the terminal in raw mode so the OSC 11 and DA1 replies can be
     /// read.
-    pub fn resolve(explicit: Option<ThemeMode>) -> ThemeMode {
-        explicit
-            .or_else(query_terminal_background)
+    pub fn new() -> ThemeMode {
+        let raw_enabled = enable_raw_mode().is_ok();
+
+        let theme = query_terminal_background()
             .or_else(Self::from_colorfgbg)
-            .unwrap_or(ThemeMode::Dark)
+            .unwrap_or(ThemeMode::Dark);
+
+        if raw_enabled {
+            let _ = disable_raw_mode();
+        }
+
+        theme
     }
 
     /// Interpret `COLORFGBG` (e.g. `"15;0"`): a low background index is dark.
@@ -54,6 +61,12 @@ impl ThemeMode {
             0..=6 | 8 => Some(ThemeMode::Dark),
             _ => Some(ThemeMode::Light),
         }
+    }
+}
+
+impl Default for ThemeMode {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -310,12 +323,6 @@ impl Palette {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn explicit_choice_wins() {
-        assert_eq!(ThemeMode::resolve(Some(ThemeMode::Light)), ThemeMode::Light);
-        assert_eq!(ThemeMode::resolve(Some(ThemeMode::Dark)), ThemeMode::Dark);
-    }
 
     #[test]
     fn colorfgbg_dark_background_is_dark() {

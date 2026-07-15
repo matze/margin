@@ -5,7 +5,6 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-use margin::tui::ThemeMode;
 use margin::vcs::Kind;
 
 /// A local TUI for code-review annotations over git/jj.
@@ -19,10 +18,6 @@ pub struct Cli {
     /// When no base resolves, list this many recent commits.
     #[arg(short = 'n', long = "number", global = true, default_value_t = 50)]
     pub number: usize,
-
-    /// Force a theme instead of detecting it from the terminal.
-    #[arg(long, global = true, value_enum)]
-    pub theme: Option<ThemeChoice>,
 
     /// Force a VCS backend instead of auto-detecting (jj preferred, else git).
     #[arg(long, global = true, value_enum)]
@@ -44,22 +39,6 @@ impl From<VcsChoice> for Kind {
         match choice {
             VcsChoice::Git => Kind::Git,
             VcsChoice::Jj => Kind::Jj,
-        }
-    }
-}
-
-/// Explicit theme override for `--theme`.
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum ThemeChoice {
-    Light,
-    Dark,
-}
-
-impl From<ThemeChoice> for ThemeMode {
-    fn from(choice: ThemeChoice) -> Self {
-        match choice {
-            ThemeChoice::Light => ThemeMode::Light,
-            ThemeChoice::Dark => ThemeMode::Dark,
         }
     }
 }

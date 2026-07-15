@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `--theme` enforcement has been removed and relies entirely on
+  terminal detection or dark fallbacks.
+
 ## [0.10.0]
 
 ### Changed

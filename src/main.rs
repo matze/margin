@@ -47,7 +47,7 @@ fn run_tui(cli: &Cli) -> Result<()> {
         },
     };
 
-    margin::tui::run(backend, base, cli.theme.map(Into::into))
+    margin::tui::run(backend, base)
 }
 
 /// Discover the backend for the current directory, honoring a `--vcs` override.
