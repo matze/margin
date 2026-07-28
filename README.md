@@ -116,8 +116,8 @@ In the annotation editor:
 marker line quotes the annotated source lines and is ignored, so write below it
 and save to apply.
 
-Hand a review off to a coding agent without leaving margin: `c` launches a
-headless `claude` on the focused annotation, `C` on every open annotation, and
+Hand a review off to a coding agent without leaving margin: `x` launches a
+headless `claude` on the focused annotation, `X` on every open annotation, and
 `L` toggles a log panel that streams the session's activity below the diff. The status line
 tracks progress; markers flip live as the agent records outcomes (see [Agent
 handoff](#agent-handoff)). The session is non-blocking — keep navigating while
@@ -172,7 +172,7 @@ two branches as `divergent`, and a rewrite older than the search window is not
 found. The field is omitted entirely for annotations on git's working copy,
 which is not a commit and leaves nothing behind to match.
 
-The same handoff can be triggered from inside the TUI (`c` / `C`), which spawns
+The same handoff can be triggered from inside the TUI (`x` / `X`), which spawns
 `claude -p … --output-format stream-json --permission-mode bypassPermissions` in
 the repo and renders its streamed events. The session runs non-interactively
 because it must edit files and run `margin status` without a prompt to answer.

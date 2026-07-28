@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The agent handoff moved from `c` / `C` to `x` / `X`, freeing `c` for the
+  commit list.
+
 ## [0.12.0]
 
 ### Added

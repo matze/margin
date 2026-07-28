@@ -143,8 +143,8 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('e') => Some(Action::Edit),
         KeyCode::Char('d') => Some(Action::Delete),
         KeyCode::Char('u') => Some(Action::Undo),
-        KeyCode::Char('c') => Some(Action::SpawnAgentForAnnotation),
-        KeyCode::Char('C') => Some(Action::SpawnAgentForOpen),
+        KeyCode::Char('x') => Some(Action::SpawnAgentForAnnotation),
+        KeyCode::Char('X') => Some(Action::SpawnAgentForOpen),
         KeyCode::Char('L') => Some(Action::ToggleAgentLog),
         KeyCode::Char('H') => Some(Action::HandOff),
         _ => None,
@@ -242,11 +242,11 @@ mod tests {
     #[test]
     fn agent_keys_map_in_main_but_type_in_editor() {
         assert_eq!(
-            map(press(KeyCode::Char('c')), false),
+            map(press(KeyCode::Char('x')), false),
             Some(Action::SpawnAgentForAnnotation)
         );
         assert_eq!(
-            map(press(KeyCode::Char('C')), false),
+            map(press(KeyCode::Char('X')), false),
             Some(Action::SpawnAgentForOpen)
         );
         assert_eq!(
@@ -254,8 +254,8 @@ mod tests {
             Some(Action::ToggleAgentLog)
         );
         assert_eq!(
-            map(press(KeyCode::Char('c')), true),
-            Some(Action::EditorChar('c'))
+            map(press(KeyCode::Char('x')), true),
+            Some(Action::EditorChar('x'))
         );
     }
 

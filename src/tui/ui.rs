@@ -1822,7 +1822,7 @@ fn help_line(app: &App) -> Line<'static> {
             ("t", "timeline"),
             ("e", "edit"),
             ("d", "delete"),
-            ("c", "agent"),
+            ("x", "agent"),
             ("tab", "diff"),
             ("⇧tab", "view"),
         ],
@@ -1856,13 +1856,13 @@ fn diff_help_line(app: &App) -> Line<'static> {
     }
 
     if app.annotation_at_cursor().is_some() {
-        hints.push(("c", "agent"));
+        hints.push(("x", "agent"));
     }
 
     hints.extend([("u", "undo"), ("t", "timeline")]);
 
     if app.has_open_annotations() {
-        hints.push(("C", "agent all"));
+        hints.push(("X", "agent all"));
         hints.push(("H", "hand off"));
     }
 
