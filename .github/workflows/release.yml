@@ -20,7 +20,7 @@ jobs:
     name: create release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Fail fast if the tag and Cargo.toml version disagree.
       - name: Verify tag matches Cargo.toml
         run: |
@@ -64,7 +64,7 @@ jobs:
           - target: aarch64-pc-windows-msvc
             os: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
