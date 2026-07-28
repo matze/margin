@@ -131,7 +131,9 @@ margin install-skill                      # install the agent skill into ~/.clau
 
 `margin list --json` folds the event log into current per-annotation state
 (status, re-anchored location, snippet), so the agent never touches the raw
-NDJSON.
+NDJSON. Each annotation also carries its `history` — the replies and reopen
+reasons recorded against it, oldest first — so a later run reads back what was
+already tried and why you rejected it.
 
 Under jj, each annotation also reports a `revision_state` (`unchanged`,
 `amended`, `divergent`, or `abandoned`) tracking the annotated change across

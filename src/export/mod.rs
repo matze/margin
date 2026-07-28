@@ -3,10 +3,11 @@
 //! The NDJSON store is the source of truth; [`render_json`] is the stable,
 //! folded projection the agent reads via `margin list --json`.
 
+use jiff::Timestamp;
 use serde::Serialize;
 
 use crate::anchor::Resolution;
-use crate::model::{AnnotationType, Side, Status};
+use crate::model::{Actor, AnnotationType, Event, EventKind, Side, Status};
 use crate::review::{ResolvedAnnotation, RevisionState};
 
 /// Errors from rendering the JSON view.
@@ -51,6 +52,58 @@ struct AnnotationView<'a> {
     current_commit: Option<&'a str>,
     anchored_text: &'a [String],
     addressed_by: Vec<&'a str>,
+    /// The outcomes recorded against the annotation, oldest first, so a reader
+    /// sees what was already tried and why it was rejected.
+    history: Vec<HistoryEntry<'a>>,
+}
+
+/// One turn in an annotation's review conversation: who acted, which outcome
+/// they recorded, and what they said about it.
+#[derive(Debug, Serialize)]
+struct HistoryEntry<'a> {
+    at: &'a Timestamp,
+    actor: Actor,
+    /// `resolved`, `wont_do`, `reopened`, or `addressed_by`.
+    action: &'static str,
+    /// The reply or reopen reason recorded with the transition.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<&'a str>,
+    /// The change linked as addressing the annotation (`addressed_by` only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    revision: Option<&'a str>,
+}
+
+impl<'a> HistoryEntry<'a> {
+    /// Project an event into a conversation turn, or `None` for events that
+    /// record no outcome: creation, edits, deletion, restoration.
+    fn from_event(event: &'a Event) -> Option<Self> {
+        let (action, text, revision) = match &event.kind {
+            EventKind::AgentResolved { reply } => ("resolved", reply.as_deref(), None),
+            EventKind::AgentWontDo { reply } => ("wont_do", reply.as_deref(), None),
+            EventKind::ReviewerReopened { reason } => ("reopened", reason.as_deref(), None),
+
+            // A bare link is already carried by `addressed_by`; only a reply
+            // recorded alongside it would otherwise be lost.
+            EventKind::AgentAddressedBy {
+                revision_id,
+                reply: Some(reply),
+            } => (
+                "addressed_by",
+                Some(reply.as_str()),
+                Some(revision_id.0.as_str()),
+            ),
+
+            _ => return None,
+        };
+
+        Some(Self {
+            at: &event.timestamp,
+            actor: event.actor,
+            action,
+            text,
+            revision,
+        })
+    }
 }
 
 impl<'a> From<&'a ResolvedAnnotation> for AnnotationView<'a> {
@@ -80,6 +133,11 @@ impl<'a> From<&'a ResolvedAnnotation> for AnnotationView<'a> {
                 .addressed_by
                 .iter()
                 .map(|r| r.0.as_str())
+                .collect(),
+            history: annotation
+                .timeline
+                .iter()
+                .filter_map(HistoryEntry::from_event)
                 .collect(),
         }
     }
@@ -123,7 +181,7 @@ mod tests {
     use super::*;
     use crate::anchor::Resolution;
     use crate::model::{
-        Anchor, Annotation, AnnotationId, CommitId, LineNumber, RepoRelPath, RevisionId,
+        Anchor, Annotation, AnnotationId, CommitId, EventId, LineNumber, RepoRelPath, RevisionId,
     };
 
     fn resolved(revision_state: RevisionState) -> ResolvedAnnotation {
@@ -154,6 +212,136 @@ mod tests {
             status: Status::Open,
             revision_state,
         }
+    }
+
+    /// The same annotation carrying a timeline, which `resolved` leaves empty.
+    fn with_timeline(timeline: Vec<Event>) -> ResolvedAnnotation {
+        ResolvedAnnotation {
+            annotation: Annotation {
+                timeline,
+                ..resolved(RevisionState::Unchanged).annotation
+            },
+            ..resolved(RevisionState::Unchanged)
+        }
+    }
+
+    fn event(actor: Actor, secs: i64, kind: EventKind) -> Event {
+        Event {
+            event_id: EventId::new(),
+            annotation_id: AnnotationId::new(),
+            timestamp: Timestamp::from_second(secs).unwrap(),
+            actor,
+            kind,
+        }
+    }
+
+    /// Parse the single-annotation view back out of the rendered JSON.
+    fn history_of(resolved: ResolvedAnnotation) -> serde_json::Value {
+        let json = render_json(&[resolved]).unwrap();
+        let mut view: serde_json::Value = serde_json::from_str(&json).unwrap();
+        view[0]["history"].take()
+    }
+
+    #[test]
+    fn history_carries_replies_and_reopen_reasons_in_order() {
+        let history = history_of(with_timeline(vec![
+            event(
+                Actor::Agent,
+                20,
+                EventKind::AgentResolved {
+                    reply: Some("clamped burst to max".into()),
+                },
+            ),
+            event(
+                Actor::Reviewer,
+                30,
+                EventKind::ReviewerReopened {
+                    reason: Some("the default is still 0".into()),
+                },
+            ),
+            event(
+                Actor::Agent,
+                40,
+                EventKind::AgentWontDo {
+                    reply: Some("0 is intentional".into()),
+                },
+            ),
+        ]));
+
+        let turns: Vec<(&str, &str, &str)> = history
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|turn| {
+                (
+                    turn["actor"].as_str().unwrap(),
+                    turn["action"].as_str().unwrap(),
+                    turn["text"].as_str().unwrap(),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            turns,
+            vec![
+                ("agent", "resolved", "clamped burst to max"),
+                ("reviewer", "reopened", "the default is still 0"),
+                ("agent", "wont_do", "0 is intentional"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_transition_without_text_is_still_a_turn() {
+        let history = history_of(with_timeline(vec![event(
+            Actor::Agent,
+            20,
+            EventKind::AgentResolved { reply: None },
+        )]));
+
+        assert_eq!(history[0]["action"], "resolved");
+        assert!(history[0].get("text").is_none(), "{history}");
+    }
+
+    #[test]
+    fn events_that_record_no_outcome_stay_out_of_history() {
+        let history = history_of(with_timeline(vec![
+            event(
+                Actor::Reviewer,
+                10,
+                EventKind::AnnotationEdited {
+                    body: Some("reworded".into()),
+                    annotation_type: None,
+                },
+            ),
+            // Already carried by `addressed_by`, so a bare link adds nothing.
+            event(
+                Actor::Agent,
+                20,
+                EventKind::AgentAddressedBy {
+                    revision_id: RevisionId("abc".into()),
+                    reply: None,
+                },
+            ),
+        ]));
+
+        assert_eq!(history.as_array().unwrap(), &[] as &[serde_json::Value]);
+    }
+
+    #[test]
+    fn a_reply_on_a_linked_change_is_kept() {
+        let history = history_of(with_timeline(vec![event(
+            Actor::Agent,
+            20,
+            EventKind::AgentAddressedBy {
+                revision_id: RevisionId("abc".into()),
+                reply: Some("split across two commits".into()),
+            },
+        )]));
+
+        assert_eq!(history[0]["action"], "addressed_by");
+        assert_eq!(history[0]["revision"], "abc");
+        assert_eq!(history[0]["text"], "split across two commits");
     }
 
     #[test]
