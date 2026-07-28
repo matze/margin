@@ -32,6 +32,8 @@ pub enum Action {
     OpenFiles,
     OpenAnnotations,
     Timeline,
+    /// Show or hide the key reference.
+    ToggleHelp,
     Reopen,
     /// Re-read revisions, diff, and the annotation log from disk.
     Reload,
@@ -134,6 +136,7 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('v') => Some(Action::StartSelection),
         KeyCode::Char('a') => Some(Action::Annotate),
         KeyCode::Char('t') => Some(Action::Timeline),
+        KeyCode::Char('?') => Some(Action::ToggleHelp),
         KeyCode::Char('r') => Some(Action::Reopen),
         KeyCode::Char('R') => Some(Action::Reload),
         KeyCode::Char('e') => Some(Action::Edit),
@@ -188,6 +191,18 @@ mod tests {
                 Some(Action::EditorChar(key))
             );
         }
+    }
+
+    #[test]
+    fn question_mark_opens_the_key_reference_but_types_in_the_editor() {
+        assert_eq!(
+            map(press(KeyCode::Char('?')), false),
+            Some(Action::ToggleHelp)
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('?')), true),
+            Some(Action::EditorChar('?'))
+        );
     }
 
     #[test]

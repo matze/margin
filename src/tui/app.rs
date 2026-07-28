@@ -84,6 +84,8 @@ pub enum Overlay {
     Editor(Editor),
     Timeline(Timeline),
     Picker(Picker),
+    /// The key reference, so the help bar can stay short.
+    Help,
 }
 
 /// State of a headless agent session launched from the TUI, plus its streamed
@@ -776,6 +778,7 @@ impl App {
             Action::OpenFiles => self.open_picker(PickerKind::Files),
             Action::OpenAnnotations => self.open_picker(PickerKind::Annotations),
             Action::Timeline => self.open_timeline(),
+            Action::ToggleHelp => self.toggle_help(),
             Action::Reopen => self.reopen(),
             Action::Reload => self.reload(),
             Action::Edit => self.begin_edit(),
@@ -817,7 +820,7 @@ impl App {
     /// timeline's scroll, else the diff cursor.
     fn step_cursor(&mut self, direction: Direction) {
         match &self.overlay {
-            Overlay::Editor(_) => {}
+            Overlay::Editor(_) | Overlay::Help => {}
             Overlay::Timeline(_) => self.scroll_timeline(direction),
             Overlay::Picker(picker) => {
                 let kind = picker.kind;
@@ -903,7 +906,7 @@ impl App {
                 kind: PickerKind::Commits,
                 ..
             }) => self.scroll_message(direction),
-            Overlay::Editor(_) | Overlay::Timeline(_) | Overlay::Picker(_) => {}
+            Overlay::Editor(_) | Overlay::Timeline(_) | Overlay::Picker(_) | Overlay::Help => {}
             Overlay::None => {
                 let step = (self.diff_viewport_height / 2).max(1);
 
@@ -1091,7 +1094,7 @@ impl App {
         match self.overlay {
             Overlay::Picker(_) => self.overlay = Overlay::None,
             Overlay::None => self.begin_annotation(),
-            Overlay::Editor(_) | Overlay::Timeline(_) => {}
+            Overlay::Editor(_) | Overlay::Timeline(_) | Overlay::Help => {}
         }
     }
 
@@ -1172,7 +1175,7 @@ impl App {
                 commit: self.commit_cursor,
                 row: self.diff_cursor,
             },
-            Overlay::Editor(_) | Overlay::Timeline(_) => return,
+            Overlay::Editor(_) | Overlay::Timeline(_) | Overlay::Help => return,
         };
 
         if matches!(kind, PickerKind::Annotations) {
@@ -1202,7 +1205,9 @@ impl App {
                 self.restore_position(restore);
             }
             Overlay::None => self.selection_anchor = None,
-            Overlay::Editor(_) | Overlay::Timeline(_) => self.overlay = Overlay::None,
+            Overlay::Editor(_) | Overlay::Timeline(_) | Overlay::Help => {
+                self.overlay = Overlay::None
+            }
         }
     }
 
@@ -1247,6 +1252,16 @@ impl App {
             text: TextField::default(),
             annotation_type: None,
         });
+    }
+
+    /// Show the key reference, or hide it if it is already up. Any other
+    /// overlay owns the screen, so it keeps it.
+    fn toggle_help(&mut self) {
+        self.overlay = match self.overlay {
+            Overlay::Help => Overlay::None,
+            Overlay::None => Overlay::Help,
+            _ => return,
+        };
     }
 
     /// Open the timeline for the focused annotation.

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `?` opens a key reference listing every binding, grouped by what it does. The
+  help bar under the diff now carries only the keys a review reaches for
+  constantly plus whatever the cursor makes available, instead of trying to
+  spell out the whole keymap on one line.
+
 ### Changed
 
 - The top band is gone and with it the focus/view split that `Tab` and

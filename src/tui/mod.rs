@@ -1788,6 +1788,35 @@ impl Limiter {
     }
 
     #[test]
+    fn the_key_reference_toggles_and_lists_every_binding() {
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        app.apply(keymap::Action::ToggleHelp);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        let rendered = terminal.backend().to_string();
+
+        for expected in ["keys", "next/prev annotation", "hand off", "split/unified"] {
+            assert!(
+                rendered.contains(expected),
+                "{expected} missing:\n{rendered}"
+            );
+        }
+
+        app.apply(keymap::Action::ToggleHelp);
+        assert!(
+            matches!(app.overlay, super::app::Overlay::None),
+            "a second press closes it"
+        );
+    }
+
+    #[test]
     fn the_review_starts_on_the_diff_with_no_picker_open() {
         let repo = multi_file_fixture();
         let app = multi_file_app(repo.path());

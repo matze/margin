@@ -120,6 +120,10 @@ const SPLIT_CONTENT_INDENT: usize = 8;
 /// below this.
 const PICKER_HEIGHT: u16 = 16;
 
+/// Width of the `?` key reference, and the column its keys are right-aligned in.
+const KEY_REFERENCE_WIDTH: u16 = 84;
+const KEY_COLUMN: usize = 9;
+
 /// Render the whole screen.
 pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
     let area = frame.area();
@@ -143,6 +147,7 @@ pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
     match app.picker_kind() {
         Some(kind) => render_picker(frame, app, kind, rows[2]),
         None if matches!(app.overlay, Overlay::Timeline(_)) => render_timeline(frame, app, rows[2]),
+        None if matches!(app.overlay, Overlay::Help) => render_key_reference(frame, app, rows[2]),
         None => {}
     }
 
@@ -1821,18 +1826,18 @@ fn help_line(app: &App) -> Line<'static> {
                 ("esc", "cancel"),
             ],
         },
+        Overlay::Help => &[("esc / ?", "close")],
         Overlay::None => return diff_help_line(app),
     };
 
     Line::from(hint_spans(app, hints, None))
 }
 
-/// The diff-pane hints, with the select key emphasized while a selection is live.
+/// The diff-pane hints: the keys a review reaches for constantly, plus whatever
+/// the cursor makes available right now. Everything else lives behind `?`, so
+/// this line stays readable instead of listing the whole keymap. The select key
+/// is emphasized while a selection is live.
 fn diff_help_line(app: &App) -> Line<'static> {
-    let view = match app.view {
-        DiffView::Unified => ("s", "split"),
-        DiffView::Split => ("s", "unified"),
-    };
     let select = match app.selecting() {
         true => ("v", "unselect"),
         false => ("v", "select"),
@@ -1840,33 +1845,23 @@ fn diff_help_line(app: &App) -> Line<'static> {
     let mut hints: Vec<(&str, &str)> = vec![
         ("j/k ↑/↓", "move"),
         ("n/p", "change"),
-        ("J/K", "commit"),
-        ("+/-", "context"),
-        view,
         select,
         ("a", "annotate"),
     ];
 
     if app.annotation_at_cursor().is_some() {
-        hints.push(("d", "delete"));
+        hints.extend([("e", "edit"), ("d", "delete"), ("x", "agent")]);
     }
-
-    if app.annotation_at_cursor().is_some() {
-        hints.push(("x", "agent"));
-    }
-
-    hints.extend([("u", "undo"), ("t", "timeline")]);
 
     if app.has_open_annotations() {
-        hints.push(("X", "agent all"));
         hints.push(("H", "hand off"));
     }
 
     hints.extend([
-        ("L", "log"),
         ("c", "commits"),
         ("f", "files"),
         ("A", "annotations"),
+        ("?", "keys"),
         ("q", "quit"),
     ]);
 
@@ -1901,6 +1896,149 @@ fn hint_spans(app: &App, hints: &[(&str, &str)], emphasize: Option<&str>) -> Vec
     }
 
     spans
+}
+
+/// Every binding, grouped so related keys read together. The source of truth for
+/// the `?` overlay; the help bar carries only the handful of keys a reviewer
+/// needs without asking.
+const KEY_REFERENCE: &[(&str, &[(&str, &str)])] = &[
+    (
+        "move",
+        &[
+            ("j/k ↑/↓", "line"),
+            ("ctrl-d/u", "half page"),
+            ("n/p", "next/prev change"),
+            ("N/P", "next/prev annotation"),
+            ("J/K", "next/prev commit"),
+            ("+/-", "expand/collapse context"),
+        ],
+    ),
+    (
+        "lists",
+        &[
+            ("c", "commits"),
+            ("f", "files"),
+            ("A", "annotations"),
+            ("enter", "keep the preview"),
+            ("esc", "dismiss, restoring position"),
+        ],
+    ),
+    (
+        "annotate",
+        &[
+            ("v / space", "start/stop a range"),
+            ("a", "annotate line or range"),
+            ("e", "edit"),
+            ("d", "delete"),
+            ("u", "undo a deletion"),
+            ("r", "reopen a closed annotation"),
+            ("t", "timeline"),
+        ],
+    ),
+    (
+        "agent",
+        &[
+            ("x", "run on this annotation"),
+            ("X", "run on every open one"),
+            ("L", "toggle the session log"),
+            ("H", "hand off to a waiting agent"),
+        ],
+    ),
+    (
+        "view",
+        &[
+            ("s", "split/unified"),
+            ("R", "reload from disk"),
+            ("?", "close this"),
+            ("q", "quit"),
+        ],
+    ),
+];
+
+/// The key reference (`?`): every binding in two columns over the diff, so the
+/// list is discoverable without the help bar having to carry it.
+fn render_key_reference(frame: &mut Frame, app: &App, diff_area: Rect) {
+    let (left, right) = key_reference_columns(app.palette);
+    let height = (left.len().max(right.len()) + 2) as u16;
+
+    let rect = centered_rect(diff_area, KEY_REFERENCE_WIDTH, height);
+    frame.render_widget(Clear, rect);
+
+    let block = modal_block(" keys ".into(), app.palette);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+
+    let [left_area, right_area] =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(inner);
+
+    frame.render_widget(Paragraph::new(left), left_area);
+    frame.render_widget(Paragraph::new(right), right_area);
+}
+
+/// Split [`KEY_REFERENCE`] into two columns at the section boundary that leaves
+/// them most even, so neither column runs far past the other.
+fn key_reference_columns(palette: Palette) -> (Vec<Line<'static>>, Vec<Line<'static>>) {
+    let heights: Vec<usize> = KEY_REFERENCE
+        .iter()
+        .map(|(_, keys)| keys.len() + 2)
+        .collect();
+    let total: isize = heights.iter().sum::<usize>() as isize;
+
+    let imbalance =
+        |sections: usize| (2 * heights[..sections].iter().sum::<usize>() as isize - total).abs();
+    let split = (1..KEY_REFERENCE.len())
+        .min_by_key(|&sections| imbalance(sections))
+        .unwrap_or(1);
+
+    let lines = |sections: &[(&'static str, &'static [(&'static str, &'static str)])]| {
+        sections
+            .iter()
+            .flat_map(|section| section_lines(section, palette))
+            .collect()
+    };
+
+    (
+        lines(&KEY_REFERENCE[..split]),
+        lines(&KEY_REFERENCE[split..]),
+    )
+}
+
+/// One key-reference section: its heading, then one line per binding.
+fn section_lines((title, keys): &(&str, &[(&str, &str)]), palette: Palette) -> Vec<Line<'static>> {
+    let heading = Line::from(Span::styled(
+        format!(" {title}"),
+        Style::default()
+            .fg(palette.help_key)
+            .add_modifier(Modifier::BOLD),
+    ));
+
+    let bindings = keys.iter().map(|(key, label)| {
+        Line::from(vec![
+            Span::styled(
+                format!(" {key:>KEY_COLUMN$}  "),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(label.to_string(), Style::default().fg(palette.gutter_fg)),
+        ])
+    });
+
+    std::iter::once(heading)
+        .chain(bindings)
+        .chain(std::iter::once(Line::from("")))
+        .collect()
+}
+
+/// A rectangle of `width` × `height` centered in `area`, clamped to it.
+fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height);
+
+    Rect {
+        x: area.x + (area.width - width) / 2,
+        y: area.y + (area.height - height) / 2,
+        width,
+        height,
+    }
 }
 
 fn render_timeline(frame: &mut Frame, app: &App, diff_area: Rect) {
