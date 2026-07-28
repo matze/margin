@@ -479,8 +479,8 @@ impl Limiter {
     }
 
     /// Build the screenshot scene: the demo diff with two annotations — a
-    /// multi-line question and a fix already resolved by the agent — and the band
-    /// showing the annotation overview.
+    /// multi-line question and a fix already resolved by the agent — under the
+    /// context header, with the editor open on the top annotation.
     fn render_demo_svg(mode: ThemeMode) -> String {
         use crate::model::{Actor, EventKind};
         use crate::store::Store;
@@ -521,10 +521,6 @@ impl Limiter {
             ))
             .unwrap();
         app.reload();
-
-        // Focus the band on the annotation overview, framed from the file header
-        // so both annotations are in shot.
-        app.apply(keymap::Action::ViewAnnotations);
 
         // Open the editor on the top annotation so the note-entry box is in shot
         // alongside the resolved fix and the range question below it.
@@ -606,7 +602,6 @@ impl Limiter {
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Annotate);
@@ -633,7 +628,6 @@ impl Limiter {
         let repo = fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit); // focus diff, cursor on row 0 (File)
 
         let cursor_bg = app.palette.cursor_bg;
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
@@ -642,15 +636,15 @@ impl Limiter {
             .draw(|frame| ui::render(frame, &mut app, &highlighter))
             .unwrap();
 
-        // The diff spans the full width directly below the band rule (the `┴`
-        // row), with no header of its own; its first row is the File header
-        // holding the cursor.
+        // The diff spans the full width directly below the context rule, with
+        // no header of its own; its first row is the File header holding the
+        // cursor.
         let rule_y = terminal
             .backend()
             .to_string()
             .lines()
-            .position(|line| line.contains('┴'))
-            .expect("band rule row") as u16;
+            .position(|line| line.contains("──────────"))
+            .expect("context rule row") as u16;
         let cursor_y = rule_y + 1;
         let buffer = terminal.backend().buffer();
         let painted = (0..120).any(|x| buffer.cell((x, cursor_y)).map(|c| c.bg) == Some(cursor_bg));
@@ -686,7 +680,6 @@ impl Limiter {
 
         let backend = crate::vcs::discover(path, Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::NextChange);
 
         let has = |app: &App, content: &str| {
@@ -717,15 +710,14 @@ impl Limiter {
     }
 
     #[test]
-    fn overview_navigation_reveals_without_taking_focus() {
-        use super::app::Focus;
+    fn overview_navigation_previews_in_the_diff() {
+        use super::app::PickerKind;
 
         let repo = fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         // Two annotations on different lines of the same commit.
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Annotate);
@@ -736,16 +728,19 @@ impl Limiter {
         app.apply(keymap::Action::EditorChar('b'));
         app.apply(keymap::Action::EditorSave);
 
-        app.apply(keymap::Action::ViewAnnotations);
-        let first = app.diff_cursor;
+        // The picker opens on the annotation the diff cursor already sits on,
+        // which is the second one.
+        app.apply(keymap::Action::OpenAnnotations);
+        assert_eq!(app.annotation_cursor, 1);
+        let second = app.diff_cursor;
 
-        app.apply(keymap::Action::Down);
+        app.apply(keymap::Action::Up);
         assert!(
-            matches!(app.focus, Focus::Band),
-            "overview keeps focus in the band"
+            matches!(app.picker_kind(), Some(PickerKind::Annotations)),
+            "moving keeps the picker open"
         );
         assert_ne!(
-            app.diff_cursor, first,
+            app.diff_cursor, second,
             "moving the overview row moves the diff cursor"
         );
     }
@@ -758,7 +753,6 @@ impl Limiter {
         let repo = fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
 
         app.apply(keymap::Action::NextChange);
         let cursor = app.diff_cursor;
@@ -776,7 +770,6 @@ impl Limiter {
         let repo = modification_fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
 
         // First stop lands on the removed side.
         app.apply(keymap::Action::NextChange);
@@ -799,7 +792,6 @@ impl Limiter {
         let repo = fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
 
         // A render records the viewport height; without it paging cannot move.
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
@@ -823,7 +815,6 @@ impl Limiter {
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
         // Focus the diff, move onto an added line, annotate it.
-        app.apply(keymap::Action::SelectCommit);
         for _ in 0..3 {
             app.apply(keymap::Action::Down);
         }
@@ -847,7 +838,6 @@ impl Limiter {
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
-        app.apply(keymap::Action::SelectCommit);
         for _ in 0..3 {
             app.apply(keymap::Action::Down);
         }
@@ -882,7 +872,6 @@ impl Limiter {
         let backend = crate::vcs::discover(repo, Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Annotate);
@@ -1057,7 +1046,7 @@ impl Limiter {
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
         assert_eq!(app.annotations()[0].status, Status::Resolved);
 
-        app.apply(keymap::Action::ViewAnnotations);
+        app.apply(keymap::Action::OpenAnnotations);
         app.apply(keymap::Action::Reopen);
 
         assert_eq!(app.annotations()[0].status, Status::Open);
@@ -1098,7 +1087,6 @@ impl Limiter {
         let repo = fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Annotate);
@@ -1139,7 +1127,6 @@ impl Limiter {
         let repo = fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Annotate);
@@ -1175,7 +1162,6 @@ impl Limiter {
         let repo = fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::NextChange); // land on an added line
         app.apply(keymap::Action::Annotate);
 
@@ -1196,7 +1182,7 @@ impl Limiter {
         assert_eq!(app.annotations().len(), 1);
 
         // Open the sidebar overview and delete the selected annotation.
-        app.apply(keymap::Action::ViewAnnotations);
+        app.apply(keymap::Action::OpenAnnotations);
         app.apply(keymap::Action::Delete);
 
         assert!(app.annotations().is_empty(), "annotation should fold away");
@@ -1241,20 +1227,20 @@ impl Limiter {
     }
 
     #[test]
-    fn jumping_from_the_overview_focuses_the_diff_line() {
-        use super::app::{Focus, Row};
+    fn jumping_from_the_overview_lands_on_the_diff_line() {
+        use super::app::Row;
 
         let repo = fixture();
         let mut app = app_with_annotation(repo.path());
         let anchored = app.annotations()[0].annotation.anchor.start_line.get();
 
         // Move off the commit, open the overview, and jump to the annotation.
-        app.apply(keymap::Action::ViewAnnotations);
+        app.apply(keymap::Action::OpenAnnotations);
         app.apply(keymap::Action::Confirm);
 
         assert!(
-            matches!(app.focus, Focus::Diff),
-            "jump should focus the diff"
+            app.picker_kind().is_none(),
+            "enter closes the picker and returns to the diff"
         );
         let cursor_line = match &app.rows[app.diff_cursor] {
             Row::Line { line, .. } => line.new_no.map(|n| n.get()),
@@ -1346,7 +1332,7 @@ impl Limiter {
         let repo = fixture();
         let mut app = app_with_annotation(repo.path());
 
-        app.apply(keymap::Action::ViewAnnotations);
+        app.apply(keymap::Action::OpenAnnotations);
         app.apply(keymap::Action::Edit);
         assert!(app.is_editing());
 
@@ -1367,7 +1353,7 @@ impl Limiter {
         let repo = fixture();
         let mut app = app_with_annotation(repo.path());
 
-        app.apply(keymap::Action::ViewAnnotations);
+        app.apply(keymap::Action::OpenAnnotations);
         app.apply(keymap::Action::Timeline);
 
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
@@ -1408,7 +1394,6 @@ impl Limiter {
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
 
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Down);
         app.apply(keymap::Action::Annotate);
@@ -1484,7 +1469,6 @@ impl Limiter {
         let repo = modification_fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::ToggleSplit);
 
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
@@ -1524,7 +1508,6 @@ impl Limiter {
         let repo = modification_fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::ToggleSplit);
 
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
@@ -1561,7 +1544,6 @@ impl Limiter {
         let repo = modification_fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
 
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
         let render = |app: &mut App| {
@@ -1628,7 +1610,6 @@ impl Limiter {
         let repo = long_line_fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
 
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
         let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
@@ -1667,7 +1648,6 @@ impl Limiter {
         let repo = long_line_fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::ToggleSplit);
 
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
@@ -1703,7 +1683,6 @@ impl Limiter {
         let repo = modification_fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::NextChange); // lands on the removed "apple" line
         app.apply(keymap::Action::Down); // step onto the added "banana" line (new side)
         app.apply(keymap::Action::Annotate);
@@ -1733,7 +1712,6 @@ impl Limiter {
         let repo = modification_fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
         let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
-        app.apply(keymap::Action::SelectCommit);
         app.apply(keymap::Action::NextChange); // lands on the removed "apple" line
         app.apply(keymap::Action::Annotate);
         for c in "deleted on purpose".chars() {
@@ -1804,64 +1782,59 @@ impl Limiter {
         App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap()
     }
 
-    /// Show the file list in the band (which focuses it).
-    fn focus_file_panel(app: &mut App) {
-        app.apply(keymap::Action::ViewFiles);
+    /// Open the file picker over the diff.
+    fn open_file_picker(app: &mut App) {
+        app.apply(keymap::Action::OpenFiles);
     }
 
     #[test]
-    fn tab_toggles_between_the_band_and_the_diff() {
-        use super::app::Focus;
-
+    fn the_review_starts_on_the_diff_with_no_picker_open() {
         let repo = multi_file_fixture();
-        let mut app = multi_file_app(repo.path());
+        let app = multi_file_app(repo.path());
 
-        // Review starts in the diff, where annotating happens.
-        assert!(matches!(app.focus, Focus::Diff));
-        app.apply(keymap::Action::FocusToggle);
-        assert!(matches!(app.focus, Focus::Band), "tab moves to the band");
-        app.apply(keymap::Action::FocusToggle);
         assert!(
-            matches!(app.focus, Focus::Diff),
-            "tab moves back to the diff"
+            app.picker_kind().is_none(),
+            "the diff has the screen and the keyboard until a picker is asked for"
         );
     }
 
     #[test]
-    fn shift_tab_cycles_the_band_views() {
-        use super::app::{BandView, Focus};
+    fn each_list_key_opens_its_picker_directly() {
+        use super::app::PickerKind;
 
         let repo = multi_file_fixture();
         let mut app = multi_file_app(repo.path());
 
-        app.apply(keymap::Action::ViewCommits);
-        assert!(matches!(app.band, BandView::Commits));
-        assert!(
-            matches!(app.focus, Focus::Band),
-            "showing a view focuses it"
-        );
-
-        app.apply(keymap::Action::CycleView);
-        assert!(matches!(app.band, BandView::Files));
-        app.apply(keymap::Action::CycleView);
-        assert!(matches!(app.band, BandView::Annotations));
-        app.apply(keymap::Action::CycleView);
-        assert!(matches!(app.band, BandView::Commits), "cycle wraps around");
+        for (action, expected) in [
+            (keymap::Action::OpenCommits, PickerKind::Commits),
+            (keymap::Action::OpenFiles, PickerKind::Files),
+            (keymap::Action::OpenAnnotations, PickerKind::Annotations),
+        ] {
+            app.apply(action);
+            assert_eq!(
+                app.picker_kind(),
+                Some(expected),
+                "{action:?} opens its own picker"
+            );
+            app.apply(keymap::Action::Cancel);
+            assert!(app.picker_kind().is_none(), "esc closes it again");
+        }
     }
 
     #[test]
-    fn moving_the_file_panel_reveals_the_file_in_the_diff() {
-        use super::app::{Focus, Row};
+    fn moving_the_file_picker_previews_the_file_in_the_diff() {
+        use super::app::{PickerKind, Row};
 
         let repo = multi_file_fixture();
         let mut app = multi_file_app(repo.path());
 
-        focus_file_panel(&mut app);
+        open_file_picker(&mut app);
         app.apply(keymap::Action::Down);
 
-        assert!(
-            matches!(app.focus, Focus::Band),
-            "moving keeps focus in the band"
+        assert_eq!(
+            app.picker_kind(),
+            Some(PickerKind::Files),
+            "moving keeps the picker open"
         );
         assert!(
             matches!(app.rows[app.diff_cursor], Row::File { .. }),
@@ -1878,15 +1851,32 @@ impl Limiter {
     }
 
     #[test]
-    fn scrolling_the_diff_highlights_the_file_in_the_panel() {
-        use super::app::{Focus, Row};
+    fn dismissing_a_picker_restores_the_diff_position() {
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        app.apply(keymap::Action::Down);
+        app.apply(keymap::Action::Down);
+        let before = app.diff_cursor;
+
+        open_file_picker(&mut app);
+        app.apply(keymap::Action::Down);
+        assert_ne!(app.diff_cursor, before, "the preview moved the diff");
+
+        app.apply(keymap::Action::Cancel);
+        assert_eq!(
+            app.diff_cursor, before,
+            "esc undoes the preview and puts the cursor back"
+        );
+    }
+
+    #[test]
+    fn scrolling_the_diff_highlights_the_file_in_the_picker() {
+        use super::app::Row;
 
         let repo = multi_file_fixture();
         let mut app = multi_file_app(repo.path());
 
-        while !matches!(app.focus, Focus::Diff) {
-            app.apply(keymap::Action::FocusToggle);
-        }
         assert_eq!(app.file_cursor, 0, "the diff starts in the first file");
 
         // Scroll down until the diff cursor reaches the second file's header.
@@ -1905,25 +1895,24 @@ impl Limiter {
 
         assert_eq!(
             app.file_cursor, 1,
-            "reaching the second file highlights it in the panel"
+            "reaching the second file highlights it in the picker"
         );
     }
 
     #[test]
-    fn enter_in_the_file_panel_focuses_the_diff() {
-        use super::app::{Focus, Row};
+    fn enter_keeps_the_file_pickers_preview() {
+        use super::app::Row;
 
         let repo = multi_file_fixture();
         let mut app = multi_file_app(repo.path());
 
-        focus_file_panel(&mut app);
+        open_file_picker(&mut app);
         app.apply(keymap::Action::Down);
+        let previewed = app.diff_cursor;
         app.apply(keymap::Action::Confirm);
 
-        assert!(
-            matches!(app.focus, Focus::Diff),
-            "enter drops into the diff"
-        );
+        assert!(app.picker_kind().is_none(), "enter closes the picker");
+        assert_eq!(app.diff_cursor, previewed, "and keeps what it previewed");
         assert!(matches!(app.rows[app.diff_cursor], Row::File { .. }));
     }
 
@@ -1931,7 +1920,7 @@ impl Limiter {
     fn file_panel_lists_changed_paths() {
         let repo = multi_file_fixture();
         let mut app = multi_file_app(repo.path());
-        app.apply(keymap::Action::ViewFiles);
+        app.apply(keymap::Action::OpenFiles);
 
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();

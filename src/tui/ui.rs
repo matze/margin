@@ -1,11 +1,11 @@
 //! Rendering: a pure function of [`App`] state plus the [`Highlighter`].
 //!
-//! Panes are borderless (PRD §11 / issues: less chrome): each carries a single
-//! header bar, the top band shows one view at a time (commits, files, or
-//! annotations) with a horizontal rule separating it from the diff, and the
-//! focused pane is marked by a reversed header. Syntax foreground is layered over diff-semantic
-//! backgrounds (PRD §11.1); foreground accents use ANSI named colors so they
-//! track the terminal theme.
+//! The diff owns the screen (PRD §11 / issues: less chrome): a one-line context
+//! header names the commit and file above it, a one-line help bar sits below,
+//! and the commit/file/annotation lists open as bordered pickers over the diff
+//! rather than claiming space beside it. Syntax foreground is layered over
+//! diff-semantic backgrounds (PRD §11.1); foreground accents use ANSI named
+//! colors so they track the terminal theme.
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -16,12 +16,13 @@ use ratatui::widgets::{Block, Clear, Paragraph, Wrap};
 use std::ops::Range;
 
 use crate::export::type_label;
+use crate::model::Status;
 use crate::model::{Anchor, AnnotationType, Event, EventKind, LineNumber, Side};
 use crate::review::{ResolvedAnnotation, RevisionState};
 use crate::vcs::{ChangeKind, DiffLine, DiffLineKind, ListingSource};
 
 use super::app::{
-    App, BandView, DiffView, EditorMode, Focus, LineMarker, Marker, Overlay, Row, SpanPosition,
+    App, DiffView, EditorMode, LineMarker, Marker, Overlay, PickerKind, Row, SpanPosition,
     keep_in_view,
 };
 use super::emphasis;
@@ -115,18 +116,17 @@ const CONTENT_INDENT: usize = 13;
 /// gutter (5) + the +/- sign (1). Each cell shows only its own side's number.
 const SPLIT_CONTENT_INDENT: usize = 8;
 
-/// Maximum band height including its header row; see [`band_height`] for how the
-/// band shrinks to its content below this.
-const BAND_HEIGHT: u16 = 12;
+/// Maximum picker height including its border; a picker shrinks to its content
+/// below this.
+const PICKER_HEIGHT: u16 = 16;
 
 /// Render the whole screen.
 pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
     let area = frame.area();
-    let band = band_height(app, area.height);
     let agent_log = agent_log_height(app, area.height);
 
     let rows = Layout::vertical([
-        Constraint::Length(band),
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(agent_log),
@@ -134,16 +134,16 @@ pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
     ])
     .split(area);
 
-    render_band(frame, app, rows[0]);
-    render_band_divider(frame, app, rows[1]);
+    render_context(frame, app, rows[0]);
+    render_horizontal_rule(frame, app, rows[1]);
     render_diff(frame, app, highlighter, rows[2]);
     render_help(frame, app, rows[4]);
 
-    match &app.overlay {
-        // The editor renders inline within the diff (see build_attachments).
-        Overlay::Editor(_) => {}
-        Overlay::Timeline(_) => render_timeline(frame, app, rows[2]),
-        Overlay::None => {}
+    // The editor renders inline within the diff (see build_attachments).
+    match app.picker_kind() {
+        Some(kind) => render_picker(frame, app, kind, rows[2]),
+        None if matches!(app.overlay, Overlay::Timeline(_)) => render_timeline(frame, app, rows[2]),
+        None => {}
     }
 
     if app.agent.log_visible {
@@ -190,29 +190,74 @@ fn render_agent_log(frame: &mut Frame, app: &App, rect: Rect) {
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
-/// The band height: one header row plus the active view's content, so the band
-/// only takes the space it needs and the diff gets the rest. Capped at
-/// [`BAND_HEIGHT`] and never more than half the screen.
-fn band_height(app: &App, total: u16) -> u16 {
-    let rows = match app.band {
-        BandView::Commits => app
-            .revisions()
-            .len()
-            .max(app.current_message.lines().count()),
-        BandView::Files => app.changed_files().len().max(1),
-        BandView::Annotations => app.annotations().len().max(1),
+/// The context line above the diff: the loaded commit, the file the cursor sits
+/// in, where that commit falls in the review, and how many annotations are still
+/// open. It never takes focus — orientation only, so the diff keeps the keyboard.
+fn render_context(frame: &mut Frame, app: &App, area: Rect) {
+    let dim = Style::default().fg(app.palette.gutter_fg);
+
+    let Some(revision) = app.current_revision() else {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(" no revisions", dim))),
+            area,
+        );
+        return;
     };
 
-    ((rows + 1) as u16)
-        .clamp(2, BAND_HEIGHT)
-        .min(total / 2)
-        .max(2)
+    let marker = app.commit_marker(&revision.target);
+    let short: String = revision.target.as_str().chars().take(7).collect();
+
+    let mut spans = vec![
+        Span::styled(
+            format!(" {} ", marker.map_or(' ', Marker::glyph)),
+            Style::default().fg(marker_color(marker, app.palette)),
+        ),
+        Span::styled(short, Style::default().fg(app.palette.revision_prefix)),
+        Span::raw(" "),
+        Span::styled(
+            revision.summary.clone(),
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+    ];
+
+    for detail in context_details(app) {
+        spans.push(Span::styled(" · ", dim));
+        spans.push(Span::styled(detail, dim));
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-/// The commits view's two columns and the divider between them, as one layout so
-/// the band body and its bottom rule stay column-aligned. The list column width
-/// matches the split-diff cell ([`render_diff`]) so this divider lines up with the
-/// split divider below it.
+/// The dimmed segments trailing the commit in the context line, in the order
+/// they answer "where am I": the current file, the commit's place in the review,
+/// then the outstanding annotation count.
+fn context_details(app: &App) -> Vec<String> {
+    let file = app
+        .changed_files()
+        .get(app.file_cursor)
+        .and_then(|file| file.display_path())
+        .map(|path| path.0.display().to_string());
+
+    let position = format!("commit {}/{}", app.commit_cursor + 1, app.revisions().len());
+
+    let open = app
+        .annotations()
+        .iter()
+        .filter(|resolved| matches!(resolved.status, Status::Open))
+        .count();
+    let annotations = match app.annotations().len() {
+        0 => None,
+        total => Some(format!("{open} of {total} open")),
+    };
+
+    file.into_iter()
+        .chain([position])
+        .chain(annotations)
+        .collect()
+}
+
+/// The commit picker's two columns and the divider between them: the list beside
+/// the selected commit's message.
 fn commit_columns(area: Rect) -> std::rc::Rc<[Rect]> {
     Layout::horizontal([
         Constraint::Length(area.width.saturating_sub(1) / 2),
@@ -222,91 +267,82 @@ fn commit_columns(area: Rect) -> std::rc::Rc<[Rect]> {
     .split(area)
 }
 
-/// The top band, showing one view at a time: the commit list beside the selected
-/// commit's message, the changed-file list, or the annotation overview. Each
-/// scrolls to keep its cursor in view.
-fn render_band(frame: &mut Frame, app: &mut App, area: Rect) {
-    let body_height = area.height.saturating_sub(1) as usize;
-    let focused = matches!(app.focus, Focus::Band);
+/// A list picker over the diff: commits beside the selected commit's message,
+/// the changed files, or the cross-commit annotation overview. Each scrolls to
+/// keep its cursor in view.
+fn render_picker(frame: &mut Frame, app: &mut App, kind: PickerKind, diff_area: Rect) {
+    let (title, rows) = match kind {
+        PickerKind::Commits => (
+            commit_list_title(app),
+            app.revisions()
+                .len()
+                .max(app.current_message.lines().count()),
+        ),
+        PickerKind::Files => (
+            format!("files · {}", app.changed_files().len()),
+            app.changed_files().len().max(1),
+        ),
+        PickerKind::Annotations => (
+            format!("annotations · {}", app.annotations().len()),
+            app.annotations().len().max(1),
+        ),
+    };
 
-    match app.band {
-        BandView::Commits => render_commit_band(frame, app, area, body_height, focused),
-        BandView::Files => {
-            app.file_top = keep_in_view(app.file_top, app.file_cursor, body_height);
-            render_list_pane(
+    let rect = picker_rect(diff_area, rows);
+    frame.render_widget(Clear, rect);
+
+    let block = modal_block(format!(" {title} "), app.palette);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+
+    let height = inner.height as usize;
+
+    match kind {
+        PickerKind::Commits => {
+            let columns = commit_columns(inner);
+
+            app.commit_top = keep_in_view(app.commit_top, app.commit_cursor, height);
+            render_list_body(
                 frame,
-                area,
-                &format!("files · {}", app.changed_files().len()),
-                file_list_lines(app, Color::Reset, focused),
-                focused,
-                app.palette,
+                columns[0],
+                commit_list_lines(app, Color::Reset),
+                app.commit_top as u16,
+            );
+            render_divider(frame, columns[1], app.palette);
+            render_message_body(frame, app, columns[2]);
+        }
+        PickerKind::Files => {
+            app.file_top = keep_in_view(app.file_top, app.file_cursor, height);
+            render_list_body(
+                frame,
+                inner,
+                file_list_lines(app, Color::Reset),
                 app.file_top as u16,
             );
         }
-        BandView::Annotations => {
-            app.annotation_top =
-                keep_in_view(app.annotation_top, app.annotation_cursor, body_height);
-            render_list_pane(
+        PickerKind::Annotations => {
+            app.annotation_top = keep_in_view(app.annotation_top, app.annotation_cursor, height);
+            render_list_body(
                 frame,
-                area,
-                &format!("annotations · {}", app.annotations().len()),
-                annotation_list_lines(app, app.annotation_cursor, Color::Reset, focused),
-                focused,
-                app.palette,
+                inner,
+                annotation_list_lines(app, app.annotation_cursor, Color::Reset),
                 app.annotation_top as u16,
             );
         }
     }
 }
 
-/// The commits view: the commit list and the selected commit's message under one
-/// shared heading. The message is the selected commit's detail, not a pane of its
-/// own, so it carries no separate label.
-fn render_commit_band(
-    frame: &mut Frame,
-    app: &mut App,
-    area: Rect,
-    body_height: usize,
-    focused: bool,
-) {
-    let columns = commit_columns(area);
-
-    let detail = union(columns[0], columns[2]);
-    let [heading, _] = pane_split(detail);
-    render_header(
-        frame,
-        heading,
-        &commit_list_title(app),
-        focused,
-        app.palette,
-    );
-
-    app.commit_top = keep_in_view(app.commit_top, app.commit_cursor, body_height);
-    render_list_body(
-        frame,
-        body_of(columns[0]),
-        commit_list_lines(app, Color::Reset, focused),
-        app.commit_top as u16,
-    );
-    render_message_body(frame, app, body_of(columns[2]));
-
-    // The divider runs only below the shared heading, which spans both columns.
-    render_divider(frame, body_of(columns[1]), app.palette);
-}
-
-/// The smallest rect covering two horizontally adjacent columns.
-fn union(left: Rect, right: Rect) -> Rect {
+/// A picker's rectangle: a panel across the top of the diff area, tall enough
+/// for `rows` plus its border but never past [`PICKER_HEIGHT`] or the diff
+/// itself. Every picker lands in the same place, so switching lists does not
+/// move the target.
+fn picker_rect(diff_area: Rect, rows: usize) -> Rect {
     Rect {
-        x: left.x,
-        y: left.y,
-        width: right.x + right.width - left.x,
-        height: left.height,
+        height: ((rows + 2) as u16)
+            .clamp(3, PICKER_HEIGHT)
+            .min(diff_area.height),
+        ..diff_area
     }
-}
-
-/// The body of a band column: everything below its one-row header.
-fn body_of(area: Rect) -> Rect {
-    pane_split(area)[1]
 }
 
 /// The selected commit's message, scrolled with ctrl-u/d.
@@ -320,23 +356,6 @@ fn render_message_body(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-/// Render a titled list pane: a one-line header (reversed when focused) above a
-/// scrolled body.
-fn render_list_pane(
-    frame: &mut Frame,
-    area: Rect,
-    title: &str,
-    lines: Vec<Line<'static>>,
-    focused: bool,
-    palette: Palette,
-    scroll: u16,
-) {
-    let [header, body] = pane_split(area);
-
-    render_header(frame, header, title, focused, palette);
-    render_list_body(frame, body, lines, scroll);
-}
-
 /// Render pre-built list lines into `area`, scrolled by `scroll` rows.
 fn render_list_body(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>, scroll: u16) {
     frame.render_widget(
@@ -347,23 +366,20 @@ fn render_list_body(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>, sc
     );
 }
 
-/// Background and weight for a band list row. The selected row carries the
-/// cursor tint only while its pane is focused; unfocused it keeps the bold alone
-/// (mirroring the diff cursor, which also tints only when focused) so the
-/// selection stays legible without competing with the focused pane.
-fn row_style(selected: bool, focused: bool, pane_bg: Color, palette: Palette) -> Style {
-    match (selected, focused) {
-        (true, true) => Style::default()
+/// Background and weight for a picker row: the selected row carries the cursor
+/// tint, mirroring the diff cursor below it.
+fn row_style(selected: bool, pane_bg: Color, palette: Palette) -> Style {
+    match selected {
+        true => Style::default()
             .bg(palette.cursor_bg)
             .add_modifier(Modifier::BOLD),
-        (true, false) => Style::default().bg(pane_bg).add_modifier(Modifier::BOLD),
-        (false, _) => Style::default().bg(pane_bg),
+        false => Style::default().bg(pane_bg),
     }
 }
 
 /// The changed-file panel: one row per file in the loaded commit, with its
 /// change glyph and repo-relative path.
-fn file_list_lines(app: &App, pane_bg: Color, focused: bool) -> Vec<Line<'static>> {
+fn file_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
     let files = app.changed_files();
 
     if files.is_empty() {
@@ -383,7 +399,7 @@ fn file_list_lines(app: &App, pane_bg: Color, focused: bool) -> Vec<Line<'static
                 .unwrap_or_else(|| "<unknown>".into());
 
             let selected = index == app.file_cursor;
-            let base_style = row_style(selected, focused, pane_bg, app.palette);
+            let base_style = row_style(selected, pane_bg, app.palette);
 
             Line::from(vec![
                 Span::styled(
@@ -405,7 +421,7 @@ fn commit_list_title(app: &App) -> String {
     }
 }
 
-fn commit_list_lines(app: &App, pane_bg: Color, focused: bool) -> Vec<Line<'static>> {
+fn commit_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
     app.revisions()
         .iter()
         .enumerate()
@@ -424,7 +440,7 @@ fn commit_list_lines(app: &App, pane_bg: Color, focused: bool) -> Vec<Line<'stat
             let (prefix, rest) = short.split_at(split);
 
             let selected = index == app.commit_cursor;
-            let base_style = row_style(selected, focused, pane_bg, app.palette);
+            let base_style = row_style(selected, pane_bg, app.palette);
 
             Line::from(vec![
                 Span::styled(
@@ -444,12 +460,7 @@ fn commit_list_lines(app: &App, pane_bg: Color, focused: bool) -> Vec<Line<'stat
         .collect()
 }
 
-fn annotation_list_lines(
-    app: &App,
-    cursor: usize,
-    pane_bg: Color,
-    focused: bool,
-) -> Vec<Line<'static>> {
+fn annotation_list_lines(app: &App, cursor: usize, pane_bg: Color) -> Vec<Line<'static>> {
     let annotations = app.annotations();
 
     if annotations.is_empty() {
@@ -465,7 +476,7 @@ fn annotation_list_lines(
         .map(|(index, resolved)| {
             let marker = Marker::from_status(resolved.status);
             let selected = index == cursor;
-            let base_style = row_style(selected, focused, pane_bg, app.palette);
+            let base_style = row_style(selected, pane_bg, app.palette);
 
             let annotation = &resolved.annotation;
             let body = annotation.body.lines().next().unwrap_or("");
@@ -596,9 +607,11 @@ fn screen_index_of(screen: &[ScreenRow], row: usize) -> usize {
 }
 
 fn render_diff(frame: &mut Frame, app: &mut App, highlighter: &Highlighter, area: Rect) {
-    let focused = matches!(app.focus, Focus::Diff);
-    // No header: the selected commit is identified in the band, so the diff uses
-    // its whole area as the scrollable body.
+    // The diff cursor dims while a picker previews over it, so the picker's
+    // selection is the only lit cursor on screen.
+    let focused = app.picker_kind().is_none();
+    // No header: the loaded commit is named in the context line, so the diff
+    // uses its whole area as the scrollable body.
     let body = area;
 
     let height = body.height as usize;
@@ -1725,21 +1738,11 @@ fn padded_row(spans: Vec<Span<'static>>, width: usize, bg: Color) -> Line<'stati
     Line::from(fit_spans(spans, width, bg))
 }
 
-/// The horizontal rule separating the band from the diff, with a `┴` where the
-/// commits view's column divider meets it from above (the files and annotations
-/// views are single columns, so their rule is unbroken).
-fn render_band_divider(frame: &mut Frame, app: &App, area: Rect) {
-    let mut rule: Vec<char> = "─".repeat(area.width as usize).chars().collect();
-
-    if matches!(app.band, BandView::Commits)
-        && let Some(cell) = rule.get_mut((commit_columns(area)[1].x - area.x) as usize)
-    {
-        *cell = '┴';
-    }
-
+/// The rule separating the context header from the diff.
+fn render_horizontal_rule(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
-            rule.into_iter().collect::<String>(),
+            "─".repeat(area.width as usize),
             Style::default().fg(app.palette.gutter_fg),
         ))),
         area,
@@ -1786,46 +1789,39 @@ fn render_help(frame: &mut Frame, app: &App, area: Rect) {
 /// The key-hint line for the current context. Only keys that act in that context
 /// are shown (diff navigation does not appear while browsing commits).
 fn help_line(app: &App) -> Line<'static> {
-    let hints: &[(&str, &str)] = match (&app.overlay, app.focus, app.band) {
-        (Overlay::Editor(_), ..) => &[
+    let hints: &[(&str, &str)] = match &app.overlay {
+        Overlay::Editor(_) => &[
             ("type", "body"),
             ("ctrl-t", "type"),
             ("ctrl-s", "save"),
             ("esc", "cancel"),
         ],
-        (Overlay::Timeline(_), ..) => &[
+        Overlay::Timeline(_) => &[
             ("j/k ↑/↓", "scroll"),
             ("e", "edit"),
             ("r", "reopen"),
             ("d", "delete"),
             ("esc", "back"),
         ],
-        (Overlay::None, Focus::Diff, _) => return diff_help_line(app),
-        (Overlay::None, Focus::Band, BandView::Commits) => &[
-            ("j/k ↑/↓", "commits"),
-            ("enter", "open"),
-            ("ctrl-u/d", "scroll msg"),
-            ("tab", "diff"),
-            ("⇧tab", "view"),
-            ("q", "quit"),
-        ],
-        (Overlay::None, Focus::Band, BandView::Files) => &[
-            ("j/k ↑/↓", "files"),
-            ("enter", "open"),
-            ("tab", "diff"),
-            ("⇧tab", "view"),
-            ("q", "quit"),
-        ],
-        (Overlay::None, Focus::Band, BandView::Annotations) => &[
-            ("j/k ↑/↓", "move"),
-            ("enter", "jump"),
-            ("t", "timeline"),
-            ("e", "edit"),
-            ("d", "delete"),
-            ("x", "agent"),
-            ("tab", "diff"),
-            ("⇧tab", "view"),
-        ],
+        Overlay::Picker(picker) => match picker.kind {
+            PickerKind::Commits => &[
+                ("j/k ↑/↓", "commits"),
+                ("ctrl-u/d", "scroll msg"),
+                ("enter", "keep"),
+                ("esc", "cancel"),
+            ],
+            PickerKind::Files => &[("j/k ↑/↓", "files"), ("enter", "keep"), ("esc", "cancel")],
+            PickerKind::Annotations => &[
+                ("j/k ↑/↓", "annotations"),
+                ("enter", "keep"),
+                ("t", "timeline"),
+                ("e", "edit"),
+                ("d", "delete"),
+                ("x", "agent"),
+                ("esc", "cancel"),
+            ],
+        },
+        Overlay::None => return diff_help_line(app),
     };
 
     Line::from(hint_spans(app, hints, None))
@@ -1868,8 +1864,9 @@ fn diff_help_line(app: &App) -> Line<'static> {
 
     hints.extend([
         ("L", "log"),
-        ("tab", "band"),
-        ("⇧tab", "view"),
+        ("c", "commits"),
+        ("f", "files"),
+        ("A", "annotations"),
         ("q", "quit"),
     ]);
 
@@ -2223,26 +2220,6 @@ fn format_timestamp(event: &Event) -> String {
         .take(16)
         .map(|c| if c == 'T' { ' ' } else { c })
         .collect()
-}
-
-/// Split a pane into a one-line header and its body.
-fn pane_split(area: Rect) -> [Rect; 2] {
-    Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(area)
-}
-
-/// Render a borderless pane header; the focused pane gets a reversed bar.
-fn render_header(frame: &mut Frame, area: Rect, title: &str, focused: bool, palette: Palette) {
-    let style = if focused {
-        Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
-    } else {
-        Style::default().fg(palette.gutter_fg)
-    };
-
-    let text = format!(
-        " {title:<width$}",
-        width = (area.width as usize).saturating_sub(1)
-    );
-    frame.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), area);
 }
 
 /// Render the single-column vertical divider between the sidebar and the diff.

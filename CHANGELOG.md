@@ -9,8 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The top band is gone and with it the focus/view split that `Tab` and
+  `Shift-Tab` drove. The diff now owns the screen and always has the keyboard,
+  under a one-line context header naming the loaded commit, the current file,
+  the commit's place in the review and the open-annotation count. The commit,
+  file and annotation lists open as pickers over the diff — `c`, `f` and `A`,
+  each reaching its list directly and switching between them without closing
+  first. Moving a picker previews the target in the diff; `Enter` keeps the
+  preview, `Esc` discards it and restores the position the picker opened from
+  (`Shift-Tab` used to move the diff cursor, and could switch commits, as a
+  side effect of cycling views). The diff no longer resizes as lists grow or
+  views change, and it gains the rows the band used to hold.
 - The agent handoff moved from `c` / `C` to `x` / `X`, freeing `c` for the
   commit list.
+
+### Removed
+
+- `Tab`, `Shift-Tab`, and the `h` / `l` focus keys, which no longer have a
+  second pane to move between.
 
 ## [0.12.0]
 

@@ -14,7 +14,7 @@ fixes them. The loop is laid out on
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.svg">
-  <img alt="margin reviewing a diff: the annotation overview band above a syntax-highlighted diff with inline annotations, one open and one resolved by an agent" src="docs/screenshot-light.svg">
+  <img alt="margin reviewing a diff: a syntax-highlighted diff with inline annotations, one open and one resolved by an agent" src="docs/screenshot-light.svg">
 </picture>
 
 
@@ -39,15 +39,15 @@ cargo install --git https://github.com/matze/margin
 Run inside a repository:
 
 ```sh
-margin                  # open the TUI; the band lists commits in <base>..@
+margin                  # open the TUI on the commits in <base>..@
 margin --base develop   # set the base ref explicitly
 margin -n 100           # with no base, list this many recent commits (default 50)
 margin --theme dark     # force a theme
 margin --vcs git        # force a backend
 ```
 
-Select a commit, navigate files → hunks → lines, mark a line or range, and type
-an annotation. Annotations persist in `.margin/annotations.ndjson`.
+Navigate the diff, mark a line or range, and type an annotation; `c` switches
+commits. Annotations persist in `.margin/annotations.ndjson`.
 
 Uncommitted work is reviewable too: under jj the working copy is the `@`
 revision and is always listed; under git it appears as `(uncommitted changes)`
@@ -55,18 +55,24 @@ at the top of the list whenever tracked files differ from `HEAD`.
 
 ### Navigation
 
-A top band sits above the full-width diff and shows one view at a time: the
-commit list beside the selected commit's message, the changed-file list, or the
-annotation overview. `Shift-Tab` cycles which view the band shows; `Tab` toggles
-focus between the band and the diff. Moving through the file list scrolls the
-diff to that file, and `Ctrl-u` / `Ctrl-d` scroll the commit message.
+The diff owns the screen and always has the keyboard. Above it, a one-line
+context header names the loaded commit, the file the cursor is in, that commit's
+place in the review, and how many annotations are still open.
+
+The commit, file and annotation lists open as pickers over the diff, each on its
+own key — there is no focus to toggle and no view to cycle. Moving a picker's
+cursor previews the target in the diff behind it: `Enter` keeps that preview and
+closes the picker, `Esc` discards it and puts the diff back where it was. A
+second list key switches lists without closing first.
 
 | Key                   | Action                                            |
 | --------------------- | --- |
-| `j` / `k`, `↓` / `↑`  | move within the focused pane |
-| `Tab`                 | toggle focus between the band and the diff |
-| `Shift-Tab`           | cycle the band view: commits → files → annotations |
-| `Enter`               | open the commit / jump to the file or annotation / annotate the line |
+| `c`                   | open the commit picker (`Ctrl-u` / `Ctrl-d` scroll the message beside it) |
+| `f`                   | open the file picker |
+| `A`                   | open the annotation overview |
+| `j` / `k`, `↓` / `↑`  | move in the open picker, else in the diff |
+| `Enter`               | keep the picker's preview / annotate the line |
+| `Esc`                 | dismiss the picker / drop a line selection |
 | `H`                   | hand the review off: release every open annotation to a waiting agent |
 | `R`                   | reload revisions, diff, and annotations from disk |
 | `q`                   | quit |
@@ -87,7 +93,7 @@ In the diff:
 | `s`                   | toggle split / unified view                               |
 | `v` (or `Space`)      | start / stop a line-range selection                       |
 | `a` (or `Enter`)      | annotate the current line or selection                    |
-| `Esc` / `h`           | cancel / back to the band                                 |
+| `Esc`                 | drop the selection                                        |
 
 While hovering an annotation:
 

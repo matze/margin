@@ -21,20 +21,16 @@ pub enum Action {
     PrevCommit,
     ExpandContext,
     CollapseContext,
-    FocusToggle,
     /// Switch the diff pane between unified and split layouts.
     ToggleSplit,
-    SelectCommit,
     StartSelection,
     Annotate,
-    /// Context action of Enter: select a commit (sidebar) or annotate (diff).
+    /// Context action of Enter: keep a picker's preview, or annotate the line.
     Confirm,
-    /// Cycle the top band through its views (commits → files → annotations).
-    CycleView,
-    /// Show a specific band view directly.
-    ViewCommits,
-    ViewFiles,
-    ViewAnnotations,
+    /// Open a list picker over the diff.
+    OpenCommits,
+    OpenFiles,
+    OpenAnnotations,
     Timeline,
     Reopen,
     /// Re-read revisions, diff, and the annotation log from disk.
@@ -128,13 +124,13 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('K') => Some(Action::PrevCommit),
         KeyCode::Char('+') | KeyCode::Char('=') => Some(Action::ExpandContext),
         KeyCode::Char('-') | KeyCode::Char('_') => Some(Action::CollapseContext),
-        KeyCode::Tab => Some(Action::FocusToggle),
-        KeyCode::BackTab => Some(Action::CycleView),
         KeyCode::Char('s') => Some(Action::ToggleSplit),
-        KeyCode::Char('l') | KeyCode::Right => Some(Action::SelectCommit),
+        KeyCode::Char('c') => Some(Action::OpenCommits),
+        KeyCode::Char('f') => Some(Action::OpenFiles),
+        KeyCode::Char('A') => Some(Action::OpenAnnotations),
         KeyCode::Enter => Some(Action::Confirm),
         KeyCode::Char(' ') => Some(Action::StartSelection),
-        KeyCode::Char('h') | KeyCode::Left | KeyCode::Esc => Some(Action::Cancel),
+        KeyCode::Esc => Some(Action::Cancel),
         KeyCode::Char('v') => Some(Action::StartSelection),
         KeyCode::Char('a') => Some(Action::Annotate),
         KeyCode::Char('t') => Some(Action::Timeline),
@@ -177,6 +173,21 @@ mod tests {
             map(press(KeyCode::Char('v')), false),
             Some(Action::StartSelection)
         );
+    }
+
+    #[test]
+    fn each_list_has_its_own_key_in_main_but_types_in_the_editor() {
+        for (key, action) in [
+            ('c', Action::OpenCommits),
+            ('f', Action::OpenFiles),
+            ('A', Action::OpenAnnotations),
+        ] {
+            assert_eq!(map(press(KeyCode::Char(key)), false), Some(action));
+            assert_eq!(
+                map(press(KeyCode::Char(key)), true),
+                Some(Action::EditorChar(key))
+            );
+        }
     }
 
     #[test]

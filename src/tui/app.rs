@@ -34,22 +34,30 @@ const CONTEXT_STEP: u32 = 10;
 /// messages scroll.
 pub const COMMIT_MESSAGE_VIEWPORT: usize = 8;
 
-/// Which top-level pane has keyboard focus. `Tab` toggles between the two.
+/// Which list a picker offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Focus {
-    Band,
-    Diff,
-}
-
-/// What the top band shows: one topic at a time, cycled with `Shift-Tab`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BandView {
-    /// The commit list beside the selected commit's message.
+pub enum PickerKind {
+    /// The commits under review, beside the selected commit's message.
     Commits,
-    /// The changed-file list for the selected commit.
+    /// The changed-file list for the loaded commit.
     Files,
     /// The cross-commit annotation overview.
     Annotations,
+}
+
+/// A list picker open over the diff. Moving its cursor previews the target in
+/// the diff behind it; `Enter` keeps that preview, `Esc` puts the diff back
+/// where [`Picker::restore`] recorded it.
+pub struct Picker {
+    pub kind: PickerKind,
+    restore: DiffPosition,
+}
+
+/// Where the diff was parked, so a dismissed picker can return to it.
+#[derive(Clone, Copy)]
+struct DiffPosition {
+    commit: usize,
+    row: usize,
 }
 
 /// How the diff pane lays out changed lines.
@@ -69,11 +77,13 @@ enum Direction {
     Down,
 }
 
-/// A modal overlay drawn over the main screen.
+/// A modal overlay drawn over the main screen. With none open the diff has the
+/// screen and the keyboard, which is where a review spends its time.
 pub enum Overlay {
     None,
     Editor(Editor),
     Timeline(Timeline),
+    Picker(Picker),
 }
 
 /// State of a headless agent session launched from the TUI, plus its streamed
@@ -533,16 +543,14 @@ pub struct App {
     commit_markers: HashMap<ReviewTarget, Marker>,
     line_markers: HashMap<(usize, Side, u32), LineMarker>,
 
-    /// Full message of the selected commit, shown in the band's message column.
+    /// Full message of the selected commit, shown beside the commit picker.
     pub current_message: String,
     /// First visible line of the message column (scrolled with ctrl-u/d).
     pub message_scroll: usize,
     /// Height of the diff viewport, recorded each frame for half-page paging.
     pub diff_viewport_height: usize,
 
-    pub focus: Focus,
     pub view: DiffView,
-    pub band: BandView,
     pub overlay: Overlay,
     pub theme_mode: ThemeMode,
     pub palette: Palette,
@@ -599,9 +607,7 @@ impl App {
             current_message: String::new(),
             message_scroll: 0,
             diff_viewport_height: 0,
-            focus: Focus::Diff,
             view: DiffView::Unified,
-            band: BandView::Commits,
             overlay: Overlay::None,
             theme_mode,
             palette: Palette::for_mode(theme_mode),
@@ -762,16 +768,13 @@ impl App {
             Action::PrevCommit => self.step_commit(Direction::Up),
             Action::ExpandContext => self.expand_context(Direction::Down),
             Action::CollapseContext => self.expand_context(Direction::Up),
-            Action::FocusToggle => self.toggle_focus(),
             Action::ToggleSplit => self.toggle_view(),
-            Action::SelectCommit => self.select_commit(),
             Action::Confirm => self.confirm(),
             Action::StartSelection => self.start_selection(),
             Action::Annotate => self.begin_annotation(),
-            Action::ViewCommits => self.show_view(BandView::Commits),
-            Action::ViewFiles => self.show_view(BandView::Files),
-            Action::ViewAnnotations => self.show_view(BandView::Annotations),
-            Action::CycleView => self.cycle_view(),
+            Action::OpenCommits => self.open_picker(PickerKind::Commits),
+            Action::OpenFiles => self.open_picker(PickerKind::Files),
+            Action::OpenAnnotations => self.open_picker(PickerKind::Annotations),
             Action::Timeline => self.open_timeline(),
             Action::Reopen => self.reopen(),
             Action::Reload => self.reload(),
@@ -803,33 +806,49 @@ impl App {
     }
 
     fn move_up(&mut self) {
-        match &mut self.overlay {
-            Overlay::Timeline(timeline) => timeline.scroll = timeline.scroll.saturating_sub(1),
-            Overlay::Editor(_) => {}
-            Overlay::None => match self.focus {
-                Focus::Band => self.move_band(Direction::Up),
-                Focus::Diff => self.set_diff_cursor(self.diff_cursor.saturating_sub(1)),
-            },
-        }
+        self.step_cursor(Direction::Up);
     }
 
     fn move_down(&mut self) {
-        match &mut self.overlay {
-            Overlay::Timeline(timeline) => timeline.scroll += 1,
+        self.step_cursor(Direction::Down);
+    }
+
+    /// Move whatever the cursor keys address: an open picker's list, the
+    /// timeline's scroll, else the diff cursor.
+    fn step_cursor(&mut self, direction: Direction) {
+        match &self.overlay {
             Overlay::Editor(_) => {}
-            Overlay::None => match self.focus {
-                Focus::Band => self.move_band(Direction::Down),
-                Focus::Diff => self.set_diff_cursor(self.diff_cursor + 1),
-            },
+            Overlay::Timeline(_) => self.scroll_timeline(direction),
+            Overlay::Picker(picker) => {
+                let kind = picker.kind;
+                self.move_picker(kind, direction);
+            }
+            Overlay::None => {
+                let row = match direction {
+                    Direction::Up => self.diff_cursor.saturating_sub(1),
+                    Direction::Down => self.diff_cursor + 1,
+                };
+                self.set_diff_cursor(row);
+            }
         }
     }
 
-    /// Move the cursor within the band's active view.
-    fn move_band(&mut self, direction: Direction) {
-        match self.band {
-            BandView::Commits => self.move_commits(direction),
-            BandView::Files => self.move_files(direction),
-            BandView::Annotations => self.move_annotations(direction),
+    fn scroll_timeline(&mut self, direction: Direction) {
+        if let Overlay::Timeline(timeline) = &mut self.overlay {
+            timeline.scroll = match direction {
+                Direction::Up => timeline.scroll.saturating_sub(1),
+                Direction::Down => timeline.scroll + 1,
+            };
+        }
+    }
+
+    /// Move the open picker's cursor, previewing the target in the diff behind
+    /// it so browsing the list reads as browsing the review.
+    fn move_picker(&mut self, kind: PickerKind, direction: Direction) {
+        match kind {
+            PickerKind::Commits => self.move_commits(direction),
+            PickerKind::Files => self.move_files(direction),
+            PickerKind::Annotations => self.move_annotations(direction),
         }
     }
 
@@ -854,21 +873,15 @@ impl App {
         self.reveal_file();
     }
 
-    /// Scroll the diff to the selected file's header without changing focus, so
-    /// the file panel can be browsed with the diff following.
+    /// Scroll the diff to the selected file's header, so the file picker can be
+    /// browsed with the diff following.
     fn reveal_file(&mut self) {
         if let Some(row) = self.file_header_row(self.file_cursor) {
             self.diff_cursor = row;
         }
     }
 
-    /// Jump from the file panel into the diff at the selected file.
-    fn jump_to_file(&mut self) {
-        self.reveal_file();
-        self.focus = Focus::Diff;
-    }
-
-    /// Move the diff cursor and keep the file panel pointed at the file the
+    /// Move the diff cursor and keep the file picker pointed at the file the
     /// cursor now sits in, so scrolling the diff highlights the matching file.
     fn set_diff_cursor(&mut self, row: usize) {
         let max = self.rows.len().saturating_sub(1);
@@ -882,20 +895,16 @@ impl App {
             .saturating_sub(1);
     }
 
-    /// Half-viewport paging: the diff cursor when the diff is focused, or the
-    /// message column otherwise. No-op while an overlay is open.
+    /// Half-viewport paging: the commit message while the commit picker shows
+    /// it, else the diff cursor. No-op under any other overlay.
     fn move_page(&mut self, direction: Direction) {
-        if !matches!(self.overlay, Overlay::None) {
-            return;
-        }
-
-        match self.focus {
-            Focus::Band => {
-                if matches!(self.band, BandView::Commits) {
-                    self.scroll_message(direction);
-                }
-            }
-            Focus::Diff => {
+        match self.overlay {
+            Overlay::Picker(Picker {
+                kind: PickerKind::Commits,
+                ..
+            }) => self.scroll_message(direction),
+            Overlay::Editor(_) | Overlay::Timeline(_) | Overlay::Picker(_) => {}
+            Overlay::None => {
                 let step = (self.diff_viewport_height / 2).max(1);
 
                 self.set_diff_cursor(match direction {
@@ -926,7 +935,7 @@ impl App {
     /// (rather than a hunk header) keeps `p` useful even when the cursor already
     /// sits on a hunk's first line.
     fn jump_change(&mut self, direction: Direction) {
-        if !matches!(self.focus, Focus::Diff) || !matches!(self.overlay, Overlay::None) {
+        if !matches!(self.overlay, Overlay::None) {
             return;
         }
 
@@ -943,11 +952,10 @@ impl App {
     }
 
     /// Move the diff cursor to the first line of the next/previous annotated
-    /// span and focus the diff. Within the current diff it steps to the adjacent
-    /// span (landing on its first line so repeated presses move between
-    /// annotations, not within one); once the diff is exhausted it crosses into
-    /// the nearest commit with an anchored annotation and lands on its
-    /// first/last span. Available from either pane.
+    /// span. Within the current diff it steps to the adjacent span (landing on
+    /// its first line so repeated presses move between annotations, not within
+    /// one); once the diff is exhausted it crosses into the nearest commit with
+    /// an anchored annotation and lands on its first/last span.
     fn jump_annotation(&mut self, direction: Direction) {
         if !matches!(self.overlay, Overlay::None) {
             return;
@@ -955,7 +963,6 @@ impl App {
 
         if let Some(index) = self.adjacent_annotation_start(direction) {
             self.diff_cursor = index;
-            self.focus = Focus::Diff;
             return;
         }
 
@@ -975,8 +982,8 @@ impl App {
 
     /// Cross into the nearest commit (in `direction`) with an anchored
     /// annotation and place the cursor on its first (down) or last (up)
-    /// annotated span, focusing the diff. Commits whose only annotations are
-    /// orphaned are skipped, since they have no gutter span to land on.
+    /// annotated span. Commits whose only annotations are orphaned are skipped,
+    /// since they have no gutter span to land on.
     fn jump_annotation_across_commits(&mut self, direction: Direction) {
         let has_anchored = |index: &usize| {
             self.revisions
@@ -1002,7 +1009,6 @@ impl App {
 
         self.commit_cursor = index;
         self.load_selected_commit();
-        self.focus = Focus::Diff;
 
         let starts = (0..self.rows.len()).filter(|&index| self.is_annotation_start(index));
 
@@ -1079,24 +1085,19 @@ impl App {
         }
     }
 
-    /// Enter's context action: select a commit (or jump to an annotation) from
-    /// the sidebar, or annotate the current line/selection in the diff.
+    /// Enter's context action: keep an open picker's preview and return to the
+    /// diff, or annotate the current line/selection.
     fn confirm(&mut self) {
-        if !matches!(self.overlay, Overlay::None) {
-            return;
-        }
-
-        match (self.focus, self.band) {
-            (Focus::Band, BandView::Commits) => self.select_commit(),
-            (Focus::Band, BandView::Files) => self.jump_to_file(),
-            (Focus::Band, BandView::Annotations) => self.jump_to_annotation(),
-            (Focus::Diff, _) => self.begin_annotation(),
+        match self.overlay {
+            Overlay::Picker(_) => self.overlay = Overlay::None,
+            Overlay::None => self.begin_annotation(),
+            Overlay::Editor(_) | Overlay::Timeline(_) => {}
         }
     }
 
-    /// Reveal the selected overview annotation in the diff pane — load its commit
-    /// (only if different) and place the diff cursor on its anchor line — without
-    /// changing focus, so the overview can be navigated with the diff following.
+    /// Reveal the selected overview annotation in the diff pane: load its commit
+    /// (only if different) and place the diff cursor on its anchor line, so the
+    /// overview can be browsed with the diff following.
     fn reveal_annotation(&mut self) {
         let Some((target, file, start_line)) = self.focused_annotation().map(|resolved| {
             let anchor = &resolved.annotation.anchor;
@@ -1133,22 +1134,6 @@ impl App {
         }
     }
 
-    /// Jump from the overview to the selected annotation, moving focus to the diff.
-    fn jump_to_annotation(&mut self) {
-        self.reveal_annotation();
-        self.focus = Focus::Diff;
-    }
-
-    /// Toggle focus between the top band and the diff.
-    fn toggle_focus(&mut self) {
-        if matches!(self.overlay, Overlay::None) {
-            self.focus = match self.focus {
-                Focus::Band => Focus::Diff,
-                Focus::Diff => Focus::Band,
-            };
-        }
-    }
-
     /// Switch the diff pane between unified and split layouts. Rows are
     /// view-independent, so only the rendering changes.
     fn toggle_view(&mut self) {
@@ -1158,13 +1143,8 @@ impl App {
         };
     }
 
-    fn select_commit(&mut self) {
-        self.load_selected_commit();
-        self.focus = Focus::Diff;
-    }
-
     fn start_selection(&mut self) {
-        if matches!(self.focus, Focus::Diff) && matches!(self.overlay, Overlay::None) {
+        if matches!(self.overlay, Overlay::None) {
             self.selection_anchor = match self.selection_anchor {
                 Some(_) => None,
                 None => Some(self.diff_cursor),
@@ -1172,43 +1152,68 @@ impl App {
         }
     }
 
-    /// Switch the band to `view` and focus it so it can be navigated. Selecting
-    /// the files or annotations view reveals the current selection in the diff.
-    fn show_view(&mut self, view: BandView) {
-        if !matches!(self.overlay, Overlay::None) {
-            return;
-        }
-
-        self.band = view;
-        self.focus = Focus::Band;
-
-        match view {
-            BandView::Files => self.reveal_file(),
-            BandView::Annotations => self.reveal_annotation(),
-            BandView::Commits => {}
+    /// The kind of picker currently open, if any.
+    pub fn picker_kind(&self) -> Option<PickerKind> {
+        match &self.overlay {
+            Overlay::Picker(picker) => Some(picker.kind),
+            _ => None,
         }
     }
 
-    /// Cycle the band to the next view (commits → files → annotations → …).
-    fn cycle_view(&mut self) {
-        let next = match self.band {
-            BandView::Commits => BandView::Files,
-            BandView::Files => BandView::Annotations,
-            BandView::Annotations => BandView::Commits,
+    /// Open `kind` over the diff, parking its cursor on what the diff already
+    /// shows and recording the position to return to if it is dismissed. Each
+    /// list key reaches its list directly, including from another picker.
+    fn open_picker(&mut self, kind: PickerKind) {
+        let restore = match &self.overlay {
+            // Switching lists keeps the first picker's recorded position, so a
+            // dismissal still returns to where the reviewer left the diff.
+            Overlay::Picker(picker) => picker.restore,
+            Overlay::None => DiffPosition {
+                commit: self.commit_cursor,
+                row: self.diff_cursor,
+            },
+            Overlay::Editor(_) | Overlay::Timeline(_) => return,
         };
 
-        self.show_view(next);
+        if matches!(kind, PickerKind::Annotations) {
+            self.sync_annotation_cursor();
+        }
+
+        self.overlay = Overlay::Picker(Picker { kind, restore });
     }
 
-    fn cancel(&mut self) {
-        match self.overlay {
-            Overlay::None => {
-                if self.selection_anchor.take().is_none() {
-                    self.focus = Focus::Band;
-                }
-            }
-            _ => self.overlay = Overlay::None,
+    /// Park the overview cursor on the annotation under the diff cursor, so the
+    /// picker opens where the reviewer already is.
+    fn sync_annotation_cursor(&mut self) {
+        if let Some(id) = self.annotation_at_cursor().map(ResolvedAnnotation::id)
+            && let Some(index) = self.annotations.iter().position(|a| a.id() == id)
+        {
+            self.annotation_cursor = index;
         }
+    }
+
+    /// Esc: dismiss a picker (undoing its preview), close any other overlay, or
+    /// drop an active line selection.
+    fn cancel(&mut self) {
+        match &self.overlay {
+            Overlay::Picker(picker) => {
+                let restore = picker.restore;
+                self.overlay = Overlay::None;
+                self.restore_position(restore);
+            }
+            Overlay::None => self.selection_anchor = None,
+            Overlay::Editor(_) | Overlay::Timeline(_) => self.overlay = Overlay::None,
+        }
+    }
+
+    /// Put the diff back where a picker found it.
+    fn restore_position(&mut self, position: DiffPosition) {
+        if position.commit != self.commit_cursor {
+            self.commit_cursor = position.commit;
+            self.load_selected_commit();
+        }
+
+        self.set_diff_cursor(position.row);
     }
 
     /// Begin annotating the current line or selection on the new side. With no
@@ -1257,16 +1262,10 @@ impl App {
         }
     }
 
-    /// Edit the focused annotation's body/type. From the sidebar overview this
-    /// first jumps to the annotation so the inline editor lands on its line.
+    /// Edit the focused annotation's body/type. Editing from the annotation
+    /// picker replaces it, keeping the preview that already put the diff cursor
+    /// on the annotation's line, so the inline editor opens there.
     fn begin_edit(&mut self) {
-        let from_overview =
-            matches!(self.focus, Focus::Band) && matches!(self.band, BandView::Annotations);
-
-        if from_overview {
-            self.jump_to_annotation();
-        }
-
         let Some(resolved) = self.focused_annotation() else {
             self.status_message = Some("no annotation here to edit".into());
             return;
@@ -1371,8 +1370,8 @@ impl App {
 
     /// Re-read the revision list, the current diff, and the annotation log from
     /// disk, reflecting changes made out of band (an agent addressing
-    /// annotations) without a restart. Focus, band, and diff view are preserved;
-    /// the cursor stays on the same commit where it survives the re-listing, and
+    /// annotations) without a restart. The diff view is preserved; the cursor
+    /// stays on the same commit where it survives the re-listing, and
     /// the diff scrolls back to the top since code edits shift line numbers.
     pub fn reload(&mut self) {
         let current = self.current_revision().map(|r| r.target.clone());
@@ -1539,20 +1538,18 @@ impl App {
     }
 
     /// The annotation the next command acts on: the timeline's annotation when
-    /// it is open, the sidebar overview's selection when that view is active,
-    /// else the one under the diff cursor.
+    /// it is open, the annotation picker's selection while it is, else the one
+    /// under the diff cursor.
     fn focused_annotation(&self) -> Option<&ResolvedAnnotation> {
-        if let Overlay::Timeline(timeline) = &self.overlay {
-            return self
+        match &self.overlay {
+            Overlay::Timeline(timeline) => self
                 .annotations
                 .iter()
-                .find(|a| a.id() == timeline.annotation_id);
-        }
-
-        match self.band {
-            BandView::Annotations if matches!(self.focus, Focus::Band) => {
-                self.annotations.get(self.annotation_cursor)
-            }
+                .find(|a| a.id() == timeline.annotation_id),
+            Overlay::Picker(Picker {
+                kind: PickerKind::Annotations,
+                ..
+            }) => self.annotations.get(self.annotation_cursor),
             _ => self.annotation_at_cursor(),
         }
     }
@@ -1873,7 +1870,7 @@ impl App {
 
     /// Reveal (or hide) more source context around the hunk under the cursor.
     fn expand_context(&mut self, direction: Direction) {
-        if !matches!(self.focus, Focus::Diff) || !matches!(self.overlay, Overlay::None) {
+        if !matches!(self.overlay, Overlay::None) {
             return;
         }
 
