@@ -6,6 +6,12 @@ Agentic development turns you into a reviewer, but the review loop is stuck in
 chat. `margin` lets you step through a change in the terminal, pin comments to
 lines or ranges, and hand them to a coding agent through a small CLI.
 
+Most terminal review tools stop at an export you paste into a chat window.
+`margin` keeps the review open, and the agent writes its answers back into it
+through the CLI. Annotations follow the commit through the amend or rebase that
+fixes them. The loop is laid out on
+[margin.matze.lol](https://margin.matze.lol/).
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.svg">
   <img alt="margin reviewing a diff: the annotation overview band above a syntax-highlighted diff with inline annotations, one open and one resolved by an agent" src="docs/screenshot-light.svg">
@@ -174,6 +180,48 @@ Thus it acts on your working tree autonomously, review the result as you would
 any agent run. It inherits the environment, so `CLAUDE_CONFIG_DIR` and `PATH`
 reach the agent and it finds the installed skill; set `MARGIN_AGENT_CMD` to run
 a different binary or a stub.
+
+## Compared to other review TUIs
+
+margin reviews the commits, or the working copy, that your agent is about to
+rewrite, and it keeps that review as state in the repository. The tools below
+solve neighbouring problems, and the table says where each of them wins.
+
+- **[tuicr](https://github.com/agavra/tuicr)** — a full vim model, 23 themes,
+  git/jj/hg, and `:submit` pushes a real inline review to GitHub or GitLab. Its
+  agent path reads the human's comments as JSON and instructs the agent to poll
+  every 30 seconds; nothing records that a comment was handled.
+- **[hunk](https://github.com/modem-dev/hunk)** — a review-first diff viewer for
+  agent-authored changesets, with git/jj/sapling, git pager and difftool
+  integration, and a loopback daemon (`hunk session …`) an agent uses to drive
+  the live window and add notes. Notes are scoped to the session, and there is
+  no resolved/declined state on them.
+- **[lumen](https://github.com/jnsahaj/lumen)** — a diff viewer plus AI commands
+  (`draft`, `explain`, `operate`) and GitHub PR review. Annotations are
+  ephemeral: `s` exits the TUI and prints them to stdout for the agent, which is
+  where its loop ends.
+
+| | margin | tuicr | hunk | lumen |
+|---|:--:|:--:|:--:|:--:|
+| Agent reports outcomes back into the review | ✅ | ❌ | ❌ | ❌ |
+| Annotations survive amend/rebase of the reviewed commit | ✅ | ❌ | ❌ | ❌ |
+| Annotations stored in the repository | ✅ | app-data dir | session | session |
+| Append-only history, undo, per-annotation timeline | ✅ | ❌ | ❌ | ❌ |
+| Review stays open, agent updates land in it live | ✅ | ❌ | ✅ | ❌ |
+| Agent launched from inside the review | ✅ | via tmux | ❌ | ❌ |
+| Push an inline review to GitHub / GitLab | ❌ | ✅ | ❌ | ❌ |
+| Review someone else's PR / MR | ❌ | ✅ | ❌ | GitHub |
+| AI commit messages, explanations, git command generation | ❌ | ❌ | ❌ | ✅ |
+| Backends | git, jj | git, jj, hg | git, jj, sapling | git, jj |
+| Vim model, mouse, theme gallery | minimal | extensive | mouse, themes | mouse, themes |
+
+### Non-goals
+
+Out of scope on purpose, and better served by the tools above: pushing an inline
+review to a forge, reviewing someone else's pull request, mercurial support, a
+full vim modality, a theme gallery, and a stable library API. Conceding that
+breadth is what keeps the loop small enough to stay correct. If you want a
+pull-request client, tuicr is the better tool.
 
 ## Build
 

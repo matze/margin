@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The README compares margin with tuicr, hunk and lumen on margin's own axes,
+  and states the non-goals (forge submission, foreign pull requests, mercurial,
+  a full vim modality, a theme gallery, a library API) so the tools that do
+  cover them are easy to find.
+
 - Track the annotated commit across amend and rebase on git, not only on jj: a
   commit that history no longer contains is matched against recent commits on
   all refs by author, author date and subject, so `revision_state` reports
