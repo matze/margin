@@ -127,7 +127,12 @@ margin status <id> resolved [--reply ..]  # mark one addressed (write)
 margin status <id> wont-do  [--reply ..]  # decline one
 margin status <id> open     [--reason ..] # reopen for re-review
 margin install-skill                      # install the agent skill into ~/.claude/skills/
+margin install-skill --dir <path>         # ... into another skills root
+margin install-skill --print              # ... or to stdout, e.g. `>> AGENTS.md`
 ```
+
+The skill only documents the CLI above, so any agent can follow it: `--print`
+writes it wherever your agent looks for instructions.
 
 `margin list --json` folds the event log into current per-annotation state
 (status, re-anchored location, snippet), so the agent never touches the raw
