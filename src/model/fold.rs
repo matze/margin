@@ -109,14 +109,16 @@ fn fold_one(id: AnnotationId, timeline: Vec<Event>) -> Option<Annotation> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Actor, CommitId, EventId, LineNumber, RepoRelPath, RevisionId, Side};
+    use crate::model::{
+        Actor, CommitId, EventId, LineNumber, RepoRelPath, ReviewTarget, RevisionId, Side,
+    };
     use jiff::Timestamp;
     use std::path::PathBuf;
 
     fn anchor() -> Anchor {
         Anchor {
             file: RepoRelPath(PathBuf::from("src/lib.rs")),
-            revision_id: RevisionId("rev0".into()),
+            target: ReviewTarget::Revision(RevisionId("rev0".into())),
             commit_at_capture: CommitId("commit0".into()),
             start_line: LineNumber::new(12).unwrap(),
             end_line: LineNumber::new(12).unwrap(),

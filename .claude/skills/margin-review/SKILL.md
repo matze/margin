@@ -74,7 +74,7 @@ never read or edit the NDJSON store under `.margin/` directly.
 | `status`        | `open` \| `resolved` \| `wont_do` \| `orphaned`. |
 | `type`          | `fix` \| `question` \| `suggestion` \| `nit` \| `praise` (omitted = plain note). |
 | `body`          | The reviewer's text — the actual request. |
-| `revision_id`   | Commit the annotation was anchored to. |
+| `revision_id`   | Commit the annotation was anchored to, or `(working copy)` when it marks an uncommitted change. |
 | `side`          | `new` (added/changed line) or `old` (a line the commit **deleted**; `location` then refers to the commit's parent). |
 | `location`      | Current `[start, end]` 1-based lines, or `null` when the anchor is gone. |
 | `orphaned`      | `true` when the anchor no longer resolves, whatever the `status`. |

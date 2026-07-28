@@ -12,7 +12,7 @@ use std::time::SystemTime;
 
 use crate::anchor::{CONTEXT_LINES, Resolution, capture};
 use crate::model::{
-    Actor, AnnotationId, AnnotationType, Event, EventKind, LineNumber, RepoRelPath, RevisionId,
+    Actor, AnnotationId, AnnotationType, Event, EventKind, LineNumber, RepoRelPath, ReviewTarget,
     Side, Status,
 };
 use crate::review::{ResolvedAnnotation, resolve_all};
@@ -377,7 +377,7 @@ pub struct Timeline {
 #[derive(Clone)]
 pub struct Target {
     pub path: RepoRelPath,
-    pub revision: RevisionId,
+    pub review_target: ReviewTarget,
     pub side: Side,
     pub start: LineNumber,
     pub end: LineNumber,
@@ -530,7 +530,7 @@ pub struct App {
     last_deleted: Option<AnnotationId>,
 
     annotations: Vec<ResolvedAnnotation>,
-    commit_markers: HashMap<RevisionId, Marker>,
+    commit_markers: HashMap<ReviewTarget, Marker>,
     line_markers: HashMap<(usize, Side, u32), LineMarker>,
 
     /// Full message of the selected commit, shown in the band's message column.
@@ -640,8 +640,8 @@ impl App {
     }
 
     /// Marker for a sidebar commit, if it has annotations.
-    pub fn commit_marker(&self, revision: &RevisionId) -> Option<Marker> {
-        self.commit_markers.get(revision).copied()
+    pub fn commit_marker(&self, target: &ReviewTarget) -> Option<Marker> {
+        self.commit_markers.get(target).copied()
     }
 
     /// Marker for a diff line by its file, side, and line number, if annotated.
@@ -715,11 +715,11 @@ impl App {
     pub fn annotation_at_cursor(&self) -> Option<&ResolvedAnnotation> {
         let (side, line) = self.cursor_side_line()?;
         let file_index = self.cursor_file_index()?;
-        let revision = &self.current_revision()?.id;
+        let target = &self.current_revision()?.target;
 
         self.annotations.iter().find(|resolved| {
             let anchor = &resolved.annotation.anchor;
-            anchor.revision_id == *revision
+            anchor.target == *target
                 && anchor.side == side
                 && self.file_index_of(&anchor.file) == Some(file_index)
                 && (anchor.start_line.get()..=anchor.end_line.get()).contains(&line)
@@ -981,7 +981,7 @@ impl App {
         let has_anchored = |index: &usize| {
             self.revisions
                 .get(*index)
-                .is_some_and(|revision| self.commit_has_anchored_annotation(&revision.id))
+                .is_some_and(|revision| self.commit_has_anchored_annotation(&revision.target))
         };
 
         let target = match direction {
@@ -1016,9 +1016,9 @@ impl App {
 
     /// True when `revision` has an annotation that anchors to a live diff line
     /// (i.e. is not orphaned), so jumping there lands on a gutter span.
-    fn commit_has_anchored_annotation(&self, revision: &RevisionId) -> bool {
+    fn commit_has_anchored_annotation(&self, target: &ReviewTarget) -> bool {
         self.annotations.iter().any(|resolved| {
-            resolved.annotation.anchor.revision_id == *revision
+            resolved.annotation.anchor.target == *target
                 && !matches!(resolved.location, Resolution::Orphaned)
         })
     }
@@ -1098,10 +1098,10 @@ impl App {
     /// (only if different) and place the diff cursor on its anchor line — without
     /// changing focus, so the overview can be navigated with the diff following.
     fn reveal_annotation(&mut self) {
-        let Some((revision, file, start_line)) = self.focused_annotation().map(|resolved| {
+        let Some((target, file, start_line)) = self.focused_annotation().map(|resolved| {
             let anchor = &resolved.annotation.anchor;
             (
-                anchor.revision_id.clone(),
+                anchor.target.clone(),
                 anchor.file.clone(),
                 anchor.start_line.get(),
             )
@@ -1109,7 +1109,7 @@ impl App {
             return;
         };
 
-        if let Some(index) = self.revisions.iter().position(|r| r.id == revision)
+        if let Some(index) = self.revisions.iter().position(|r| r.target == target)
             && index != self.commit_cursor
         {
             self.commit_cursor = index;
@@ -1375,7 +1375,7 @@ impl App {
     /// the cursor stays on the same commit where it survives the re-listing, and
     /// the diff scrolls back to the top since code edits shift line numbers.
     pub fn reload(&mut self) {
-        let current = self.current_revision().map(|r| r.id.clone());
+        let current = self.current_revision().map(|r| r.target.clone());
 
         let listing = match self.backend.revisions(&self.base) {
             Ok(listing) => listing,
@@ -1390,7 +1390,7 @@ impl App {
 
         let max = self.revisions.len().saturating_sub(1);
         self.commit_cursor = current
-            .and_then(|id| self.revisions.iter().position(|r| r.id == id))
+            .and_then(|target| self.revisions.iter().position(|r| r.target == target))
             .unwrap_or(self.commit_cursor)
             .min(max);
 
@@ -1561,7 +1561,7 @@ impl App {
     /// purely removed lines anchors the old side (deleted lines); anything with
     /// additions anchors the new side, dropping any removed lines.
     fn selection_target(&self) -> Option<Target> {
-        let revision = self.current_revision()?.id.clone();
+        let review_target = self.current_revision()?.target.clone();
         let (lo, hi) = self.selection();
 
         let changes: Vec<(usize, Side, u32)> = (lo..=hi)
@@ -1599,7 +1599,7 @@ impl App {
 
         Some(Target {
             path,
-            revision,
+            review_target,
             side,
             start,
             end,
@@ -1678,8 +1678,10 @@ impl App {
     /// file at its revision (the new side, or the parent for a deleted line).
     fn target_source_lines(&self, target: &Target) -> Vec<String> {
         let source = match target.side {
-            Side::New => self.backend.file_at(&target.revision, &target.path),
-            Side::Old => self.backend.file_at_parent(&target.revision, &target.path),
+            Side::New => self.backend.file_at(&target.review_target, &target.path),
+            Side::Old => self
+                .backend
+                .file_at_parent(&target.review_target, &target.path),
         };
 
         let Ok(source) = source else {
@@ -1743,19 +1745,21 @@ impl App {
         // Old-side anchors capture from the parent revision, where the deleted
         // line still exists; new-side from the revision itself.
         let source = match target.side {
-            Side::New => self.backend.file_at(&target.revision, &target.path),
-            Side::Old => self.backend.file_at_parent(&target.revision, &target.path),
+            Side::New => self.backend.file_at(&target.review_target, &target.path),
+            Side::Old => self
+                .backend
+                .file_at_parent(&target.review_target, &target.path),
         }
         .map_err(|error| format!("reading file at revision: {error}"))?;
 
         let commit_at_capture = self
             .backend
-            .commit_of(&target.revision)
+            .commit_of(&target.review_target)
             .map_err(|error| format!("resolving commit at revision: {error}"))?;
 
         let anchor = capture(
             target.path.clone(),
-            target.revision.clone(),
+            target.review_target.clone(),
             commit_at_capture,
             target.side,
             &source,
@@ -1806,7 +1810,7 @@ impl App {
         self.selection_anchor = None;
         self.expansions.clear();
 
-        let Some(revision) = self.current_revision().map(|r| r.id.clone()) else {
+        let Some(revision) = self.current_revision().map(|r| r.target.clone()) else {
             self.diff = None;
             self.rows = Vec::new();
             self.current_message = String::new();
@@ -1850,7 +1854,7 @@ impl App {
             }
 
             if let Some(path) = file.new_path.clone()
-                && let Ok(text) = self.backend.file_at(&diff.revision, &path)
+                && let Ok(text) = self.backend.file_at(&diff.target, &path)
             {
                 contents.insert(file_index, text.lines().map(str::to_string).collect());
             }
@@ -1978,12 +1982,12 @@ impl App {
     }
 
     fn recompute_commit_markers(&mut self) {
-        let mut markers: HashMap<RevisionId, Marker> = HashMap::new();
+        let mut markers: HashMap<ReviewTarget, Marker> = HashMap::new();
 
         for resolved in &self.annotations {
             let marker = Marker::from_status(resolved.status);
             markers
-                .entry(resolved.annotation.anchor.revision_id.clone())
+                .entry(resolved.annotation.anchor.target.clone())
                 .and_modify(|existing| *existing = existing.merge(marker))
                 .or_insert(marker);
         }
@@ -1994,11 +1998,11 @@ impl App {
     fn recompute_line_markers(&mut self) {
         let mut markers: HashMap<(usize, Side, u32), LineMarker> = HashMap::new();
 
-        if let Some(revision) = self.current_revision().map(|r| r.id.clone()) {
+        if let Some(target) = self.current_revision().map(|r| r.target.clone()) {
             for resolved in &self.annotations {
                 let anchor = &resolved.annotation.anchor;
 
-                if anchor.revision_id != revision {
+                if anchor.target != target {
                     continue;
                 }
 
@@ -2301,6 +2305,7 @@ fn gap_context(prev: &Hunk, next: &Hunk, file_lines: Option<&Vec<String>>) -> Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::RevisionId;
 
     #[test]
     fn text_field_inserts_at_the_cursor() {
@@ -2413,7 +2418,7 @@ mod tests {
 
     fn diff_with(hunks: Vec<Hunk>) -> CommitDiff {
         CommitDiff {
-            revision: RevisionId("rev".into()),
+            target: ReviewTarget::Revision(RevisionId("rev".into())),
             files: vec![crate::vcs::FileDiff {
                 old_path: Some(RepoRelPath("f.rs".into())),
                 new_path: Some(RepoRelPath("f.rs".into())),

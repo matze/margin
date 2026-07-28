@@ -8,7 +8,7 @@ use std::process::Command;
 use margin::anchor::{CONTEXT_LINES, capture};
 use margin::model::{
     Actor, AnnotationId, AnnotationType, CommitId, Event, EventKind, LineNumber, RepoRelPath,
-    RevisionId, Side,
+    ReviewTarget, RevisionId, Side,
 };
 use margin::store::Store;
 
@@ -56,7 +56,7 @@ fn list_json_resolve_round_trip() {
     let id = AnnotationId::new();
     let anchor = capture(
         RepoRelPath("src/limiter.rs".into()),
-        RevisionId(rev_sha.clone()),
+        ReviewTarget::Revision(RevisionId(rev_sha.clone())),
         CommitId(rev_sha.clone()),
         Side::New,
         source,
@@ -133,7 +133,7 @@ fn status_wont_do_and_reopen() {
     let commit = CommitId(rev.0.clone());
     let anchor = capture(
         RepoRelPath("f.rs".into()),
-        rev,
+        ReviewTarget::Revision(rev),
         commit,
         Side::New,
         "fn keep() {}\n",
@@ -198,7 +198,7 @@ fn old_side_anchor_resolves_against_parent() {
     let commit = CommitId(rev.0.clone());
     let anchor = capture(
         RepoRelPath("f.rs".into()),
-        rev,
+        ReviewTarget::Revision(rev),
         commit,
         Side::Old,
         parent_source,
@@ -246,7 +246,7 @@ fn orphaned_annotation_is_flagged() {
     let id = AnnotationId::new();
     let anchor = capture(
         RepoRelPath("f.rs".into()),
-        RevisionId("deadbeef".into()),
+        ReviewTarget::Revision(RevisionId("deadbeef".into())),
         CommitId("deadbeef".into()),
         Side::New,
         "fn vanished() {}\n",
@@ -291,7 +291,7 @@ fn resolved_then_vanished_is_flagged_orphaned() {
     let commit = CommitId(rev.0.clone());
     let anchor = capture(
         RepoRelPath("f.rs".into()),
-        rev,
+        ReviewTarget::Revision(rev),
         commit,
         Side::New,
         source,

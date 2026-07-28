@@ -117,7 +117,7 @@ impl<'a> From<&'a ResolvedAnnotation> for AnnotationView<'a> {
             status: resolved.status,
             annotation_type: annotation.annotation_type,
             body: &annotation.body,
-            revision_id: &annotation.anchor.revision_id.0,
+            revision_id: annotation.anchor.target.as_str(),
             side: annotation.anchor.side,
             location: match resolved.location {
                 Resolution::Located { start, end } => Some([start.get(), end.get()]),
@@ -182,7 +182,8 @@ mod tests {
     use super::*;
     use crate::anchor::Resolution;
     use crate::model::{
-        Anchor, Annotation, AnnotationId, CommitId, EventId, LineNumber, RepoRelPath, RevisionId,
+        Anchor, Annotation, AnnotationId, CommitId, EventId, LineNumber, RepoRelPath, ReviewTarget,
+        RevisionId,
     };
 
     fn resolved(revision_state: RevisionState) -> ResolvedAnnotation {
@@ -191,7 +192,7 @@ mod tests {
                 id: AnnotationId::new(),
                 anchor: Anchor {
                     file: RepoRelPath("f.rs".into()),
-                    revision_id: RevisionId("change0".into()),
+                    target: ReviewTarget::Revision(RevisionId("change0".into())),
                     commit_at_capture: CommitId("commit0".into()),
                     start_line: LineNumber::new(1).unwrap(),
                     end_line: LineNumber::new(1).unwrap(),

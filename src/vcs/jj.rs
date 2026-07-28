@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::parse::{FIELD_SEP, parse_diff, parse_log_line};
 use super::{Base, ChangeCommits, CommitDiff, ListingSource, Revision, Revisions, Vcs, VcsError};
-use crate::model::{CommitId, RepoRelPath, RevisionId};
+use crate::model::{CommitId, RepoRelPath, ReviewTarget, RevisionId};
 
 /// The revset naming the working-copy commit, always included in the listing so
 /// an undescribed/empty working revision is still reviewable.
@@ -84,21 +84,21 @@ impl Vcs for Backend {
         }
     }
 
-    fn diff(&self, revision: &RevisionId) -> Result<CommitDiff, VcsError> {
-        let raw = self.run(&["diff", "-r", &revision.0, "--git"])?;
+    fn diff(&self, target: &ReviewTarget) -> Result<CommitDiff, VcsError> {
+        let raw = self.run(&["diff", "-r", revset(target), "--git"])?;
 
         Ok(CommitDiff {
-            revision: revision.clone(),
+            target: target.clone(),
             files: parse_diff(&raw)?,
         })
     }
 
-    fn file_at(&self, revision: &RevisionId, path: &RepoRelPath) -> Result<String, VcsError> {
+    fn file_at(&self, target: &ReviewTarget, path: &RepoRelPath) -> Result<String, VcsError> {
         self.run(&[
             "file",
             "show",
             "-r",
-            &revision.0,
+            revset(target),
             "--",
             &path.0.to_string_lossy(),
         ])
@@ -106,10 +106,10 @@ impl Vcs for Backend {
 
     fn file_at_parent(
         &self,
-        revision: &RevisionId,
+        target: &ReviewTarget,
         path: &RepoRelPath,
     ) -> Result<String, VcsError> {
-        let parent = format!("{}-", revision.0);
+        let parent = format!("{}-", revset(target));
         self.run(&[
             "file",
             "show",
@@ -124,26 +124,40 @@ impl Vcs for Backend {
         self.resolve(WORKING_COPY)
     }
 
-    fn message(&self, revision: &RevisionId) -> Result<String, VcsError> {
+    fn message(&self, target: &ReviewTarget) -> Result<String, VcsError> {
         Ok(self
-            .run(&["log", "-r", &revision.0, "--no-graph", "-T", "description"])?
+            .run(&[
+                "log",
+                "-r",
+                revset(target),
+                "--no-graph",
+                "-T",
+                "description",
+            ])?
             .trim_end()
             .to_string())
     }
 
-    fn commit_of(&self, revision: &RevisionId) -> Result<CommitId, VcsError> {
-        match self.change_commits(revision)? {
+    fn commit_of(&self, target: &ReviewTarget) -> Result<CommitId, VcsError> {
+        match self.change_commits(target)? {
             ChangeCommits::One(commit) => Ok(commit),
             // At capture time the change is the one under the cursor; absence or
             // divergence here means the revset stopped resolving to it.
             _ => Err(VcsError::Parse {
                 what: "change_id",
-                detail: format!("{} resolved to no single commit", revision.0),
+                detail: format!("{target} resolved to no single commit"),
             }),
         }
     }
 
-    fn change_commits(&self, revision: &RevisionId) -> Result<ChangeCommits, VcsError> {
+    fn change_commits(&self, target: &ReviewTarget) -> Result<ChangeCommits, VcsError> {
+        // The working copy is a real commit here, so it has a change id like any
+        // other revision — it just has to be resolved before it can be matched.
+        let revision = match target.revision() {
+            Some(revision) => revision.clone(),
+            None => self.resolve(WORKING_COPY)?,
+        };
+
         // `change_id(..)` matches every commit carrying the change id: an empty
         // set for an abandoned change, several for a divergent one. A bare
         // change-id symbol instead errors on divergence, so it can't report it.
@@ -168,6 +182,12 @@ impl Vcs for Backend {
             _ => ChangeCommits::Many(commits),
         })
     }
+}
+
+/// The revset naming `target`: its change id, or `@` for the working copy —
+/// which jj snapshots into a real commit, so it needs no further special casing.
+fn revset(target: &ReviewTarget) -> &str {
+    target.revision().map_or(WORKING_COPY, |id| id.0.as_str())
 }
 
 /// jj's virtual root commit has an all-`z` change id; it is never a real base.
@@ -255,7 +275,7 @@ mod tests {
             "jj revisions carry a shortest unique prefix"
         );
 
-        let diff = backend.diff(&working.id).unwrap();
+        let diff = backend.diff(&working.target).unwrap();
         assert!(!diff.files.is_empty(), "undescribed @ still has a diff");
     }
 
@@ -267,7 +287,7 @@ mod tests {
 
         let repo = fixture();
         let backend = Backend::discover(repo.path()).unwrap();
-        let head = backend.head().unwrap();
+        let head = ReviewTarget::Revision(backend.head().unwrap());
 
         match backend.change_commits(&head).unwrap() {
             ChangeCommits::One(commit) => {
@@ -288,7 +308,7 @@ mod tests {
         let backend = Backend::discover(path).unwrap();
 
         // `head` is the change id (stable); capture the commit it points at now.
-        let head = backend.head().unwrap();
+        let head = ReviewTarget::Revision(backend.head().unwrap());
         let before = backend.commit_of(&head).unwrap();
 
         // Editing the working copy amends @ in place: same change id, new commit
@@ -318,7 +338,9 @@ mod tests {
         jj(path, &["abandon", &doomed.0]);
 
         assert_eq!(
-            backend.change_commits(&doomed).unwrap(),
+            backend
+                .change_commits(&ReviewTarget::Revision(doomed))
+                .unwrap(),
             ChangeCommits::None
         );
     }
@@ -350,7 +372,9 @@ mod tests {
 
         assert!(
             matches!(
-                backend.change_commits(&target).unwrap(),
+                backend
+                    .change_commits(&ReviewTarget::Revision(target))
+                    .unwrap(),
                 ChangeCommits::Many(_)
             ),
             "concurrent rewrites should diverge the change"
