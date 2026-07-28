@@ -1759,6 +1759,26 @@ impl Limiter {
 
     /// A feature commit touching two files (`alpha.rs`, `beta.rs`), so the file
     /// panel has more than one entry to navigate.
+    fn two_commit_fixture() -> tempfile::TempDir {
+        let repo = tempfile::tempdir().unwrap();
+        let path = repo.path();
+        git(path, &["init", "-q", "-b", "main"]);
+        git(path, &["config", "user.email", "t@example.com"]);
+        git(path, &["config", "user.name", "T"]);
+        std::fs::write(path.join("base.txt"), "base\n").unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "base"]);
+
+        git(path, &["checkout", "-q", "-b", "feature"]);
+        std::fs::write(path.join("alpha.rs"), "fn a() {}\n").unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "first"]);
+        std::fs::write(path.join("beta.rs"), "fn b() {}\n").unwrap();
+        git(path, &["add", "-A"]);
+        git(path, &["commit", "-q", "-m", "second"]);
+        repo
+    }
+
     fn multi_file_fixture() -> tempfile::TempDir {
         let repo = tempfile::tempdir().unwrap();
         let path = repo.path();
@@ -1785,6 +1805,52 @@ impl Limiter {
     /// Open the file picker over the diff.
     fn open_file_picker(app: &mut App) {
         app.apply(keymap::Action::OpenFiles);
+    }
+
+    /// Draw `app` and return the context header, the screen's first row.
+    fn context_header(app: &mut App) -> String {
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, app, &highlighter))
+            .unwrap();
+
+        terminal
+            .backend()
+            .to_string()
+            .lines()
+            .next()
+            .expect("a context row")
+            .to_string()
+    }
+
+    #[test]
+    fn the_context_header_advertises_the_commit_step_keys() {
+        let repo = two_commit_fixture();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+
+        let header = context_header(&mut app);
+        assert!(
+            header.contains("J/K commit 1/2"),
+            "the counter carries the key that steps it:\n{header}"
+        );
+
+        app.apply(keymap::Action::NextCommit);
+        assert!(context_header(&mut app).contains("J/K commit 2/2"));
+    }
+
+    #[test]
+    fn a_single_commit_review_advertises_no_step_keys() {
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        let header = context_header(&mut app);
+        assert!(header.contains("commit 1/1"), "{header}");
+        assert!(
+            !header.contains("J/K"),
+            "with nowhere to step, the key is noise:\n{header}"
+        );
     }
 
     #[test]

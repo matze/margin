@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The context header's counters now carry the key that steps them (`J/K commit
+  2/7`, `N/P 3 of 5 open`), so moving between commits and between annotations is
+  visible where the position is read rather than only in the key reference.
 - `?` opens a key reference listing every binding, grouped by what it does. The
   help bar under the diff now carries only the keys a review reaches for
   constantly plus whatever the cursor makes available, instead of trying to

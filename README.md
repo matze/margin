@@ -56,8 +56,10 @@ at the top of the list whenever tracked files differ from `HEAD`.
 ### Navigation
 
 The diff owns the screen and always has the keyboard. Above it, a one-line
-context header names the loaded commit, the file the cursor is in, that commit's
-place in the review, and how many annotations are still open.
+context header names the loaded commit, that commit's place in the review, the
+file the cursor is in, and how many annotations are still open. Each counter
+carries the key that steps through it — `J/K commit 2/7`, `N/P 3 of 5 open` —
+so the motion is visible where its position is read.
 
 The commit, file and annotation lists open as pickers over the diff, each on its
 own key — there is no focus to toggle and no view to cycle. Moving a picker's

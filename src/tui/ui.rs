@@ -225,25 +225,51 @@ fn render_context(frame: &mut Frame, app: &App, area: Rect) {
         ),
     ];
 
-    for detail in context_details(app) {
+    let key_style = Style::default()
+        .fg(app.palette.help_key)
+        .add_modifier(Modifier::BOLD);
+
+    for segment in context_details(app) {
         spans.push(Span::styled(" · ", dim));
-        spans.push(Span::styled(detail, dim));
+
+        if let Some(key) = segment.key {
+            spans.push(Span::styled(key, key_style));
+            spans.push(Span::styled(" ", dim));
+        }
+
+        spans.push(Span::styled(segment.text, dim));
     }
 
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-/// The dimmed segments trailing the commit in the context line, in the order
-/// they answer "where am I": the current file, the commit's place in the review,
-/// then the outstanding annotation count.
-fn context_details(app: &App) -> Vec<String> {
+/// One segment trailing the commit in the context line. A counter carries the
+/// key that steps through what it counts, so the motion is learned where its
+/// position is read rather than only from the key reference.
+struct ContextSegment {
+    key: Option<&'static str>,
+    text: String,
+}
+
+/// The segments trailing the commit in the context line, in the order they
+/// answer "where am I": the commit's place in the review, the current file, then
+/// the outstanding annotation count.
+fn context_details(app: &App) -> Vec<ContextSegment> {
+    let commits = app.revisions().len();
+    let position = ContextSegment {
+        // Stepping keys are only worth advertising with somewhere to step to.
+        key: (commits > 1).then_some("J/K"),
+        text: format!("commit {}/{commits}", app.commit_cursor + 1),
+    };
+
     let file = app
         .changed_files()
         .get(app.file_cursor)
         .and_then(|file| file.display_path())
-        .map(|path| path.0.display().to_string());
-
-    let position = format!("commit {}/{}", app.commit_cursor + 1, app.revisions().len());
+        .map(|path| ContextSegment {
+            key: None,
+            text: path.0.display().to_string(),
+        });
 
     let open = app
         .annotations()
@@ -252,11 +278,15 @@ fn context_details(app: &App) -> Vec<String> {
         .count();
     let annotations = match app.annotations().len() {
         0 => None,
-        total => Some(format!("{open} of {total} open")),
+        total => Some(ContextSegment {
+            key: Some("N/P"),
+            text: format!("{open} of {total} open"),
+        }),
     };
 
-    file.into_iter()
-        .chain([position])
+    [position]
+        .into_iter()
+        .chain(file)
         .chain(annotations)
         .collect()
 }

@@ -241,15 +241,16 @@
 <text x="304" y="13" fill="#c9d1d9" font-weight="bold" textLength="32" lengthAdjust="spacingAndGlyphs" xml:space="preserve">time</text>
 <text x="344" y="13" fill="#c9d1d9" font-weight="bold" textLength="48" lengthAdjust="spacingAndGlyphs" xml:space="preserve">passes</text>
 <text x="400" y="13" fill="#6e7681" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">·</text>
-<text x="416" y="13" fill="#6e7681" textLength="56" lengthAdjust="spacingAndGlyphs" xml:space="preserve">rate.rs</text>
-<text x="480" y="13" fill="#6e7681" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">·</text>
-<text x="496" y="13" fill="#6e7681" textLength="48" lengthAdjust="spacingAndGlyphs" xml:space="preserve">commit</text>
-<text x="552" y="13" fill="#6e7681" textLength="24" lengthAdjust="spacingAndGlyphs" xml:space="preserve">1/1</text>
+<text x="416" y="13" fill="#6e7681" textLength="48" lengthAdjust="spacingAndGlyphs" xml:space="preserve">commit</text>
+<text x="472" y="13" fill="#6e7681" textLength="24" lengthAdjust="spacingAndGlyphs" xml:space="preserve">1/1</text>
+<text x="504" y="13" fill="#6e7681" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">·</text>
+<text x="520" y="13" fill="#6e7681" textLength="56" lengthAdjust="spacingAndGlyphs" xml:space="preserve">rate.rs</text>
 <text x="584" y="13" fill="#6e7681" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">·</text>
-<text x="600" y="13" fill="#6e7681" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">1</text>
-<text x="616" y="13" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">of</text>
-<text x="640" y="13" fill="#6e7681" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">2</text>
-<text x="656" y="13" fill="#6e7681" textLength="32" lengthAdjust="spacingAndGlyphs" xml:space="preserve">open</text>
+<text x="600" y="13" fill="#bc8cff" font-weight="bold" textLength="24" lengthAdjust="spacingAndGlyphs" xml:space="preserve">N/P</text>
+<text x="632" y="13" fill="#6e7681" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">1</text>
+<text x="648" y="13" fill="#6e7681" textLength="16" lengthAdjust="spacingAndGlyphs" xml:space="preserve">of</text>
+<text x="672" y="13" fill="#6e7681" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">2</text>
+<text x="688" y="13" fill="#6e7681" textLength="32" lengthAdjust="spacingAndGlyphs" xml:space="preserve">open</text>
 <text x="8" y="47" fill="#c9d1d9" font-weight="bold" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">▸</text>
 <text x="24" y="47" fill="#c9d1d9" font-weight="bold" textLength="8" lengthAdjust="spacingAndGlyphs" xml:space="preserve">M</text>
 <text x="40" y="47" fill="#c9d1d9" font-weight="bold" textLength="56" lengthAdjust="spacingAndGlyphs" xml:space="preserve">rate.rs</text>
