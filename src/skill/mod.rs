@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 pub const NAME: &str = "margin-review";
 
 /// The skill document, embedded from the repository so the installed copy never
-/// drifts from the source of truth.
-const SKILL_MD: &str = include_str!("../../.claude/skills/margin-review/SKILL.md");
+/// drifts from the source of truth. Public so it can also be written somewhere
+/// margin does not know the convention for, such as an `AGENTS.md`.
+pub const DOCUMENT: &str = include_str!("../../.claude/skills/margin-review/SKILL.md");
 
 /// Whether [`install`] created a new skill or overwrote an existing one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +39,7 @@ pub fn install(skills_root: &Path) -> std::io::Result<Outcome> {
 
     let existed = file.exists();
     std::fs::create_dir_all(&dir)?;
-    std::fs::write(&file, SKILL_MD)?;
+    std::fs::write(&file, DOCUMENT)?;
 
     Ok(if existed {
         Outcome::Updated(file)
@@ -57,7 +58,7 @@ mod tests {
 
         let created = install(root.path()).unwrap();
         assert!(matches!(created, Outcome::Created(_)));
-        assert_eq!(std::fs::read_to_string(created.path()).unwrap(), SKILL_MD);
+        assert_eq!(std::fs::read_to_string(created.path()).unwrap(), DOCUMENT);
 
         let updated = install(root.path()).unwrap();
         assert!(matches!(updated, Outcome::Updated(_)));
@@ -66,7 +67,7 @@ mod tests {
 
     #[test]
     fn embedded_skill_has_frontmatter() {
-        assert!(SKILL_MD.starts_with("---\n"));
-        assert!(SKILL_MD.contains("name: margin-review"));
+        assert!(DOCUMENT.starts_with("---\n"));
+        assert!(DOCUMENT.contains("name: margin-review"));
     }
 }

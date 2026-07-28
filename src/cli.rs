@@ -3,6 +3,8 @@
 //! With no subcommand `margin` opens the TUI; the subcommands are the headless
 //! interface the agent and scripts use.
 
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand, ValueEnum};
 
 use margin::vcs::Kind;
@@ -75,8 +77,17 @@ pub enum Command {
     },
 
     /// Install the agent skill that teaches a coding agent the `margin` CLI
-    /// contract (into `~/.claude/skills/`).
-    InstallSkill,
+    /// contract (into `~/.claude/skills/` by default).
+    InstallSkill {
+        /// Write the skill to stdout instead of installing it, to redirect into
+        /// whatever file another agent reads (e.g. `>> AGENTS.md`).
+        #[arg(long)]
+        print: bool,
+
+        /// Install into this skills root instead of `~/.claude/skills`.
+        #[arg(long, conflicts_with = "print")]
+        dir: Option<PathBuf>,
+    },
 }
 
 /// The state an annotation can be moved to via `margin status`.

@@ -30,7 +30,8 @@ fn main() -> Result<()> {
             reason.clone(),
             addressed_by.clone(),
         ),
-        Some(Command::InstallSkill) => run_install_skill(),
+        Some(Command::InstallSkill { print: true, .. }) => run_print_skill(),
+        Some(Command::InstallSkill { dir, .. }) => run_install_skill(dir.clone()),
         None => run_tui(&cli),
     }
 }
@@ -113,11 +114,25 @@ fn list_line(resolved: &ResolvedAnnotation) -> String {
     )
 }
 
-/// `margin install-skill`: drop the embedded agent skill into the user's
-/// `~/.claude/skills/` so any repo's coding agent learns the `margin` contract.
-fn run_install_skill() -> Result<()> {
-    let home = std::env::var_os("HOME").context("HOME is not set")?;
-    let skills_root = PathBuf::from(home).join(".claude").join("skills");
+/// `margin install-skill --print`: emit the skill document so it can be
+/// redirected into whatever file a non-Claude agent reads.
+fn run_print_skill() -> Result<()> {
+    print!("{}", margin::skill::DOCUMENT);
+
+    Ok(())
+}
+
+/// `margin install-skill`: drop the embedded agent skill into a skills root —
+/// `~/.claude/skills/` unless `--dir` names another — so a coding agent learns
+/// the `margin` contract.
+fn run_install_skill(dir: Option<PathBuf>) -> Result<()> {
+    let skills_root = match dir {
+        Some(dir) => dir,
+        None => {
+            let home = std::env::var_os("HOME").context("HOME is not set")?;
+            PathBuf::from(home).join(".claude").join("skills")
+        }
+    };
 
     let outcome = margin::skill::install(&skills_root)
         .with_context(|| format!("installing skill into {}", skills_root.display()))?;
