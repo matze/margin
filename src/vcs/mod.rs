@@ -18,7 +18,7 @@ use std::process::Command;
 
 use jiff::Timestamp;
 
-use crate::model::{CommitId, LineNumber, RepoRelPath, RevisionId, Side};
+use crate::model::{CommitId, LineNumber, RepoRelPath, ReviewTarget, RevisionId, Side};
 
 /// Errors a VCS backend can surface.
 #[derive(Debug, thiserror::Error)]
@@ -114,10 +114,11 @@ pub enum ListingSource {
     RecentFallback,
 }
 
-/// One commit/revision in the sidebar.
+/// One entry in the sidebar: a commit, or the working copy when the backend
+/// surfaces uncommitted changes as their own reviewable target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Revision {
-    pub id: RevisionId,
+    pub target: ReviewTarget,
     pub summary: String,
     pub author: String,
     pub date: Timestamp,
@@ -129,10 +130,10 @@ pub struct Revision {
     pub unique_prefix_len: Option<usize>,
 }
 
-/// A single revision's own diff against its parent (PRD §6).
+/// A single target's own diff against its parent (PRD §6).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitDiff {
-    pub revision: RevisionId,
+    pub target: ReviewTarget,
     pub files: Vec<FileDiff>,
 }
 
@@ -212,32 +213,33 @@ pub trait Vcs {
     /// Commits under review for the sidebar, plus how the listing was derived.
     fn revisions(&self, base: &Base) -> Result<Revisions, VcsError>;
 
-    /// A revision's own diff against its parent (first parent for merges).
-    fn diff(&self, revision: &RevisionId) -> Result<CommitDiff, VcsError>;
+    /// A target's own diff against its parent (first parent for merges; `HEAD`
+    /// for the working copy).
+    fn diff(&self, target: &ReviewTarget) -> Result<CommitDiff, VcsError>;
 
-    /// File content at a revision, for anchoring and context capture.
-    fn file_at(&self, revision: &RevisionId, path: &RepoRelPath) -> Result<String, VcsError>;
+    /// File content at a target, for anchoring and context capture.
+    fn file_at(&self, target: &ReviewTarget, path: &RepoRelPath) -> Result<String, VcsError>;
 
-    /// File content at a revision's first parent, for resolving old-side anchors
+    /// File content at a target's first parent, for resolving old-side anchors
     /// against the version the line was deleted from.
-    fn file_at_parent(&self, revision: &RevisionId, path: &RepoRelPath)
+    fn file_at_parent(&self, target: &ReviewTarget, path: &RepoRelPath)
     -> Result<String, VcsError>;
 
     /// The current working revision (`HEAD`/`@`), used to infer the change that
     /// addressed an annotation.
     fn head(&self) -> Result<RevisionId, VcsError>;
 
-    /// The full commit message (subject and body) for a revision.
-    fn message(&self, revision: &RevisionId) -> Result<String, VcsError>;
+    /// The full commit message (subject and body) for a target.
+    fn message(&self, target: &ReviewTarget) -> Result<String, VcsError>;
 
-    /// The concrete commit `revision` points at right now, captured with an
+    /// The concrete commit `target` points at right now, captured with an
     /// anchor so later re-anchoring can detect amend/rebase.
-    fn commit_of(&self, revision: &RevisionId) -> Result<CommitId, VcsError>;
+    fn commit_of(&self, target: &ReviewTarget) -> Result<CommitId, VcsError>;
 
-    /// The commits `revision`'s change identity currently resolves to, for
+    /// The commits `target`'s change identity currently resolves to, for
     /// classifying an annotation's revision as unchanged/amended/divergent/
     /// abandoned at review time.
-    fn change_commits(&self, revision: &RevisionId) -> Result<ChangeCommits, VcsError>;
+    fn change_commits(&self, target: &ReviewTarget) -> Result<ChangeCommits, VcsError>;
 }
 
 /// The commits a change identity currently resolves to (PRD §6 change tracking).

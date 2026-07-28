@@ -30,6 +30,95 @@ use uuid::Uuid;
 #[serde(transparent)]
 pub struct RevisionId(pub String);
 
+/// What is under review: a revision in history, or the uncommitted state of the
+/// working tree.
+///
+/// jj snapshots the working copy into the `@` commit, so there it arrives as an
+/// ordinary [`ReviewTarget::Revision`]; git has no such commit, and
+/// [`ReviewTarget::WorkingCopy`] names the diff against `HEAD` instead.
+///
+/// Serializes as a plain string so anchors written before the working copy was
+/// reviewable still load: a revision as its id, the working copy as
+/// [`ReviewTarget::WORKING_COPY`], which no revision id can collide with.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(into = "String", from = "String")]
+pub enum ReviewTarget {
+    Revision(RevisionId),
+    WorkingCopy,
+}
+
+impl ReviewTarget {
+    /// The reserved string standing for the working copy on the wire and in the
+    /// `list --json` projection. Parentheses keep it out of every id syntax.
+    pub const WORKING_COPY: &'static str = "(working copy)";
+
+    /// The revision this targets, or `None` for the working copy.
+    pub fn revision(&self) -> Option<&RevisionId> {
+        match self {
+            ReviewTarget::Revision(id) => Some(id),
+            ReviewTarget::WorkingCopy => None,
+        }
+    }
+
+    /// How the target reads on the wire and in listings.
+    pub fn as_str(&self) -> &str {
+        match self {
+            ReviewTarget::Revision(id) => &id.0,
+            ReviewTarget::WorkingCopy => Self::WORKING_COPY,
+        }
+    }
+}
+
+impl From<ReviewTarget> for String {
+    fn from(target: ReviewTarget) -> Self {
+        target.as_str().to_string()
+    }
+}
+
+impl From<String> for ReviewTarget {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            ReviewTarget::WORKING_COPY => ReviewTarget::WorkingCopy,
+            _ => ReviewTarget::Revision(RevisionId(value)),
+        }
+    }
+}
+
+impl std::fmt::Display for ReviewTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::*;
+
+    #[test]
+    fn a_revision_still_serializes_as_a_bare_id() {
+        let target = ReviewTarget::Revision(RevisionId("abc123".into()));
+        let json = serde_json::to_string(&target).unwrap();
+
+        assert_eq!(json, "\"abc123\"");
+        assert_eq!(
+            serde_json::from_str::<ReviewTarget>(&json).unwrap(),
+            target,
+            "anchors written before the working copy was reviewable still load"
+        );
+    }
+
+    #[test]
+    fn the_working_copy_round_trips_through_its_reserved_string() {
+        let json = serde_json::to_string(&ReviewTarget::WorkingCopy).unwrap();
+
+        assert_eq!(json, "\"(working copy)\"");
+        assert_eq!(
+            serde_json::from_str::<ReviewTarget>(&json).unwrap(),
+            ReviewTarget::WorkingCopy
+        );
+    }
+}
+
 /// A concrete commit hash: a git commit SHA, or a jj commit id (not its change
 /// id). Captured alongside an anchor's [`RevisionId`] so re-anchoring can tell
 /// whether the change was amended/rebased since — under jj the [`RevisionId`]

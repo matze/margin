@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::anchor::{Resolution, resolve};
-use crate::model::{Annotation, AnnotationId, CommitId, Side, Status};
+use crate::model::{Annotation, AnnotationId, CommitId, ReviewTarget, Side, Status};
 use crate::store::{Store, StoreError};
 use crate::vcs::{ChangeCommits, Vcs};
 
@@ -78,7 +78,7 @@ pub fn resolve_all(
 ) -> Result<Vec<ResolvedAnnotation>, StoreError> {
     let repo_root = repo_root.as_ref();
     let mut cache: BTreeMap<SourceKey, Option<String>> = BTreeMap::new();
-    let mut revisions: BTreeMap<String, ChangeCommits> = BTreeMap::new();
+    let mut revisions: BTreeMap<ReviewTarget, ChangeCommits> = BTreeMap::new();
 
     let mut resolved: Vec<ResolvedAnnotation> = store
         .annotations()?
@@ -112,7 +112,7 @@ pub fn current_start(resolved: &ResolvedAnnotation) -> Option<u32> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum SourceKey {
     WorkingTree(PathBuf),
-    Parent { revision: String, path: PathBuf },
+    Parent { target: ReviewTarget, path: PathBuf },
 }
 
 fn resolve_one(
@@ -120,7 +120,7 @@ fn resolve_one(
     repo_root: &Path,
     vcs: &dyn Vcs,
     cache: &mut BTreeMap<SourceKey, Option<String>>,
-    revisions: &mut BTreeMap<String, ChangeCommits>,
+    revisions: &mut BTreeMap<ReviewTarget, ChangeCommits>,
 ) -> ResolvedAnnotation {
     let anchor = &annotation.anchor;
     let path = &anchor.file.0;
@@ -128,14 +128,14 @@ fn resolve_one(
     let key = match anchor.side {
         Side::New => SourceKey::WorkingTree(path.clone()),
         Side::Old => SourceKey::Parent {
-            revision: anchor.revision_id.0.clone(),
+            target: anchor.target.clone(),
             path: path.clone(),
         },
     };
 
     let contents = cache.entry(key).or_insert_with(|| match anchor.side {
         Side::New => std::fs::read_to_string(repo_root.join(path)).ok(),
-        Side::Old => vcs.file_at_parent(&anchor.revision_id, &anchor.file).ok(),
+        Side::Old => vcs.file_at_parent(&anchor.target, &anchor.file).ok(),
     });
 
     let location = match contents {
@@ -148,14 +148,12 @@ fn resolve_one(
         (status, _) => status,
     };
 
-    let current = revisions
-        .entry(anchor.revision_id.0.clone())
-        .or_insert_with(|| {
-            // An error querying the change (e.g. a missing backend) is not a
-            // history fact, so fall back to "untracked" rather than abandoned.
-            vcs.change_commits(&anchor.revision_id)
-                .unwrap_or(ChangeCommits::Unsupported)
-        });
+    let current = revisions.entry(anchor.target.clone()).or_insert_with(|| {
+        // An error querying the change (e.g. a missing backend) is not a
+        // history fact, so fall back to "untracked" rather than abandoned.
+        vcs.change_commits(&anchor.target)
+            .unwrap_or(ChangeCommits::Unsupported)
+    });
     let revision_state = RevisionState::classify(&anchor.commit_at_capture, current);
 
     ResolvedAnnotation {

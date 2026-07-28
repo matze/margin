@@ -7,7 +7,7 @@
 //! captured window. When neither locates the range the annotation is reported
 //! [`Resolution::Orphaned`] — kept and surfaced, never silently dropped.
 
-use crate::model::{Anchor, CommitId, LineNumber, RepoRelPath, RevisionId, Side};
+use crate::model::{Anchor, CommitId, LineNumber, RepoRelPath, ReviewTarget, Side};
 
 /// Default number of leading/trailing context lines captured per anchor.
 pub const CONTEXT_LINES: usize = 3;
@@ -28,7 +28,7 @@ pub enum Resolution {
 #[allow(clippy::too_many_arguments)]
 pub fn capture(
     file: RepoRelPath,
-    revision_id: RevisionId,
+    target: ReviewTarget,
     commit_at_capture: CommitId,
     side: Side,
     source: &str,
@@ -47,7 +47,7 @@ pub fn capture(
 
     Some(Anchor {
         file,
-        revision_id,
+        target,
         commit_at_capture,
         start_line: start,
         end_line: end,
@@ -137,12 +137,13 @@ fn context_score(lines: &[&str], start: usize, span: usize, anchor: &Anchor) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::RevisionId;
     use std::path::PathBuf;
 
     fn anchor_for(source: &str, start: u32, end: u32) -> Anchor {
         capture(
             RepoRelPath(PathBuf::from("src/lib.rs")),
-            RevisionId("rev0".into()),
+            ReviewTarget::Revision(RevisionId("rev0".into())),
             CommitId("commit0".into()),
             Side::New,
             source,
@@ -171,7 +172,7 @@ mod tests {
         assert!(
             capture(
                 RepoRelPath(PathBuf::from("f")),
-                RevisionId("r".into()),
+                ReviewTarget::Revision(RevisionId("r".into())),
                 CommitId("c".into()),
                 Side::New,
                 SOURCE,

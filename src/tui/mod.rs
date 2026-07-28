@@ -937,12 +937,12 @@ impl Limiter {
     fn reload_keeps_the_cursor_on_the_same_commit() {
         let repo = fixture();
         let mut app = app_with_annotation(repo.path());
-        let before = app.current_revision().unwrap().id.clone();
+        let before = app.current_revision().unwrap().target.clone();
 
         app.reload();
 
         assert_eq!(
-            app.current_revision().unwrap().id,
+            app.current_revision().unwrap().target,
             before,
             "reload re-lists without moving off the selected commit"
         );
@@ -1295,7 +1295,7 @@ impl Limiter {
             .revisions(&Base::Branch("main".into()))
             .unwrap()
             .revisions[0]
-            .id
+            .target
             .clone();
         let b_path = RepoRelPath(std::path::PathBuf::from("b.rs"));
         let source = backend.file_at(&revision, &b_path).unwrap();

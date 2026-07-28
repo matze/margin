@@ -43,6 +43,10 @@ margin --vcs git        # force a backend
 Select a commit, navigate files → hunks → lines, mark a line or range, and type
 an annotation. Annotations persist in `.margin/annotations.ndjson`.
 
+Uncommitted work is reviewable too: under jj the working copy is the `@`
+revision and is always listed; under git it appears as `(uncommitted changes)`
+at the top of the list whenever tracked files differ from `HEAD`.
+
 ### Navigation
 
 A top band sits above the full-width diff and shows one view at a time: the

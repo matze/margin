@@ -410,9 +410,9 @@ fn commit_list_lines(app: &App, pane_bg: Color, focused: bool) -> Vec<Line<'stat
         .iter()
         .enumerate()
         .map(|(index, revision)| {
-            let marker = app.commit_marker(&revision.id);
+            let marker = app.commit_marker(&revision.target);
             let glyph = marker.map_or(' ', Marker::glyph);
-            let short: String = revision.id.0.chars().take(7).collect();
+            let short: String = revision.target.as_str().chars().take(7).collect();
             let prefix_len = revision
                 .unique_prefix_len
                 .unwrap_or(0)
@@ -961,7 +961,7 @@ type Attachments = std::collections::HashMap<usize, Vec<Line<'static>>>;
 fn build_attachments(app: &App, width: usize) -> Attachments {
     let mut attachments: Attachments = std::collections::HashMap::new();
 
-    let Some(revision) = app.current_revision().map(|r| r.id.clone()) else {
+    let Some(target) = app.current_revision().map(|r| r.target.clone()) else {
         return attachments;
     };
 
@@ -976,7 +976,7 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
     for resolved in app.annotations() {
         let anchor = &resolved.annotation.anchor;
 
-        if anchor.revision_id != revision {
+        if anchor.target != target {
             continue;
         }
 

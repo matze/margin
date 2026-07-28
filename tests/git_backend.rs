@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use margin::model::{CommitId, RepoRelPath, RevisionId};
+use margin::model::{CommitId, RepoRelPath, ReviewTarget, RevisionId};
 use margin::vcs::{
     Base, ChangeCommits, ChangeKind, DiffLineKind, Kind, ListingSource, Vcs, discover,
 };
@@ -32,17 +32,23 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-/// Commit `files` (path, contents) with `message`, returning the commit SHA.
-fn commit(dir: &Path, message: &str, files: &[(&str, &str)]) -> RevisionId {
+/// Commit `files` (path, contents) with `message`, returning the commit SHA as
+/// a review target.
+fn commit(dir: &Path, message: &str, files: &[(&str, &str)]) -> ReviewTarget {
+    write_files(dir, files);
+
+    git(dir, &["add", "-A"]);
+    git(dir, &["commit", "-q", "-m", message]);
+    ReviewTarget::Revision(RevisionId(git(dir, &["rev-parse", "HEAD"])))
+}
+
+/// Write `files` (path, contents) into the working tree without committing.
+fn write_files(dir: &Path, files: &[(&str, &str)]) {
     for (path, contents) in files {
         let full = dir.join(path);
         std::fs::create_dir_all(full.parent().unwrap()).unwrap();
         std::fs::write(full, contents).unwrap();
     }
-
-    git(dir, &["add", "-A"]);
-    git(dir, &["commit", "-q", "-m", message]);
-    RevisionId(git(dir, &["rev-parse", "HEAD"]))
 }
 
 /// A fresh repo with a `main` base commit and deterministic identity/config.
@@ -71,7 +77,11 @@ fn revisions_lists_commits_unique_to_base() {
     let revisions = backend.revisions(&Base::Branch("main".into())).unwrap();
 
     assert!(matches!(revisions.source, ListingSource::Range { .. }));
-    let ids: Vec<_> = revisions.revisions.iter().map(|r| r.id.clone()).collect();
+    let ids: Vec<_> = revisions
+        .revisions
+        .iter()
+        .map(|r| r.target.clone())
+        .collect();
     // git log is newest-first.
     assert_eq!(ids, vec![second, first]);
     assert_eq!(revisions.revisions[0].summary, "Wire config");
@@ -173,12 +183,12 @@ fn merge_commit_is_flagged_and_diffable() {
         &["merge", "-q", "--no-ff", "-m", "merge side", "side"],
     );
 
-    let merge = RevisionId(git(path, &["rev-parse", "HEAD"]));
+    let merge = ReviewTarget::Revision(RevisionId(git(path, &["rev-parse", "HEAD"])));
     let backend = git_backend(path);
 
     // The work under review is unique to main..feature, including the merge.
     let listed = backend.revisions(&Base::Branch("main".into())).unwrap();
-    let merge_rev = listed.revisions.iter().find(|r| r.id == merge).unwrap();
+    let merge_rev = listed.revisions.iter().find(|r| r.target == merge).unwrap();
     assert!(merge_rev.is_merge);
 
     // Diffs against the first parent without error.
@@ -211,9 +221,82 @@ fn commit_of_is_the_sha_and_change_tracking_is_unsupported() {
 
     // git has no change identity distinct from the commit, so commit_of echoes
     // the SHA and change_commits cannot follow a change across history edits.
-    assert_eq!(backend.commit_of(&rev).unwrap(), CommitId(rev.0.clone()));
+    assert_eq!(
+        backend.commit_of(&rev).unwrap(),
+        CommitId(rev.as_str().to_string())
+    );
     assert_eq!(
         backend.change_commits(&rev).unwrap(),
         ChangeCommits::Unsupported
+    );
+}
+
+#[test]
+fn uncommitted_changes_are_listed_and_diffed_as_the_working_copy() {
+    let repo = init_repo();
+    let path = repo.path();
+
+    commit(path, "base", &[("src/lib.rs", "one\ntwo\n")]);
+
+    let backend = git_backend(path);
+
+    // A clean tree has nothing uncommitted to review.
+    let clean = backend.revisions(&Base::Auto { fallback: 10 }).unwrap();
+    assert!(
+        !clean
+            .revisions
+            .iter()
+            .any(|r| r.target == ReviewTarget::WorkingCopy)
+    );
+
+    write_files(path, &[("src/lib.rs", "one\nTWO\n")]);
+
+    // Uncommitted work leads the listing, ahead of the commits behind it.
+    let dirty = backend.revisions(&Base::Auto { fallback: 10 }).unwrap();
+    assert_eq!(dirty.revisions[0].target, ReviewTarget::WorkingCopy);
+
+    let diff = backend.diff(&ReviewTarget::WorkingCopy).unwrap();
+    let lib = diff
+        .files
+        .iter()
+        .find(|f| f.display_path().unwrap().0.ends_with("lib.rs"))
+        .unwrap();
+    assert_eq!(lib.change, ChangeKind::Modified);
+    assert!(
+        lib.hunks
+            .iter()
+            .flat_map(|h| &h.lines)
+            .any(|l| l.kind == DiffLineKind::Added && l.content.contains("TWO"))
+    );
+}
+
+#[test]
+fn the_working_copy_anchors_against_the_tree_and_head() {
+    let repo = init_repo();
+    let path = repo.path();
+
+    let base = commit(path, "base", &[("f.txt", "old\n")]);
+    write_files(path, &[("f.txt", "new\n")]);
+
+    let backend = git_backend(path);
+    let file = RepoRelPath("f.txt".into());
+
+    // The working copy's own version is the file on disk; its parent is HEAD,
+    // which is what an old-side (deleted-line) anchor resolves against.
+    assert_eq!(
+        backend.file_at(&ReviewTarget::WorkingCopy, &file).unwrap(),
+        "new\n"
+    );
+    assert_eq!(
+        backend
+            .file_at_parent(&ReviewTarget::WorkingCopy, &file)
+            .unwrap(),
+        "old\n"
+    );
+
+    // It has no commit of its own, so an anchor records the one it sits on.
+    assert_eq!(
+        backend.commit_of(&ReviewTarget::WorkingCopy).unwrap(),
+        CommitId(base.as_str().to_string())
     );
 }

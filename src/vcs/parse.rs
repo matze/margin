@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use jiff::Timestamp;
 
 use super::{ChangeKind, DiffLine, DiffLineKind, FileDiff, Hunk, Revision, VcsError};
-use crate::model::{LineNumber, RepoRelPath, RevisionId};
+use crate::model::{LineNumber, RepoRelPath, ReviewTarget, RevisionId};
 
 /// ASCII unit separator, used to delimit log fields unambiguously.
 pub(super) const FIELD_SEP: char = '\u{1f}';
@@ -46,7 +46,7 @@ pub(super) fn parse_log_line(line: &str) -> Result<Revision, VcsError> {
         })?;
 
     Ok(Revision {
-        id,
+        target: ReviewTarget::Revision(id),
         summary,
         author,
         date,
