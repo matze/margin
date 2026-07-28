@@ -36,6 +36,10 @@ never read or edit the NDJSON store under `.margin/` directly.
    - `nit` — minor; apply unless it conflicts with something.
    - `praise` — no action; do not resolve unless the user asks.
 
+   Check `history` before you start: it lists what was already recorded against
+   the annotation, oldest first. A `reopened` entry means the reviewer rejected
+   an earlier attempt — its `text` says why, so don't repeat that attempt.
+
    Honor the repo's own conventions (CLAUDE.md, surrounding code).
 
 4. **Verify** before resolving — run the project's checks (e.g. `cargo test`,
@@ -72,6 +76,7 @@ never read or edit the NDJSON store under `.margin/` directly.
 | `orphaned`      | `true` when the anchor no longer resolves, whatever the `status`. |
 | `anchored_text` | The lines the annotation was attached to (use to relocate if orphaned). |
 | `addressed_by`  | Revisions already recorded as addressing it. |
+| `history`       | Outcomes recorded so far, oldest first: `at`, `actor`, `action` (`resolved` \| `wont_do` \| `reopened` \| `addressed_by`), and the `text` said about it. |
 
 ## Rules
 

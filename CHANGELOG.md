@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `margin list --json` now reports each annotation's `history`: the outcomes
+  recorded against it, oldest first, with the reply or reopen reason said about
+  each. Replies were written to the log but never read back out, so an agent
+  re-run could not tell that its previous attempt had been rejected, or why.
+
 ## [0.11.0]
 
 ### Changed
