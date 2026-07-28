@@ -78,6 +78,9 @@ fn fold_one(id: AnnotationId, timeline: Vec<Event>) -> Option<Annotation> {
                 }
             }
 
+            // A hand-off marks the review as finished, not the annotation.
+            EventKind::ReviewerHandedOff => {}
+
             EventKind::AgentResolved { .. } => status = Status::Resolved,
             EventKind::AgentWontDo { .. } => status = Status::WontDo,
             EventKind::ReviewerReopened { .. } => status = Status::Open,

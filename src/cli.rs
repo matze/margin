@@ -56,6 +56,11 @@ pub enum Command {
         /// Emit machine-readable JSON instead of one line per annotation.
         #[arg(long)]
         json: bool,
+
+        /// Block until the reviewer hands the review off in the TUI (`H`), then
+        /// print. Without it the annotations are printed as they stand.
+        #[arg(long)]
+        watch: bool,
     },
 
     /// Change an annotation's state (the agent's write interface).

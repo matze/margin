@@ -57,6 +57,7 @@ diff to that file, and `Ctrl-u` / `Ctrl-d` scroll the commit message.
 | `Tab`                 | toggle focus between the band and the diff |
 | `Shift-Tab`           | cycle the band view: commits → files → annotations |
 | `Enter`               | open the commit / jump to the file or annotation / annotate the line |
+| `H`                   | hand the review off: release every open annotation to a waiting agent |
 | `R`                   | reload revisions, diff, and annotations from disk |
 | `q`                   | quit |
 
@@ -123,6 +124,7 @@ resolutions through it, never by parsing the store directly.
 ```sh
 margin list --json                        # the review as machine-readable JSON (read)
 margin list [--open]                      # same, one human-readable line per annotation
+margin list --json --watch                # ... but wait for the review to be handed off first
 margin status <id> resolved [--reply ..]  # mark one addressed (write)
 margin status <id> wont-do  [--reply ..]  # decline one
 margin status <id> open     [--reason ..] # reopen for re-review
@@ -139,6 +141,10 @@ writes it wherever your agent looks for instructions.
 NDJSON. Each annotation also carries its `history` — the replies and reopen
 reasons recorded against it, oldest first — so a later run reads back what was
 already tried and why you rejected it.
+
+`--watch` blocks until you press `H` in the TUI, then prints and exits, so an
+agent can be told "review this, I'll wait" once instead of polling for new
+annotations and guessing when you are done.
 
 Under jj, each annotation also reports a `revision_state` (`unchanged`,
 `amended`, `divergent`, or `abandoned`) tracking the annotated change across

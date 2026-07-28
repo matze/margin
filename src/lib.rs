@@ -12,3 +12,4 @@ pub mod skill;
 pub mod store;
 pub mod tui;
 pub mod vcs;
+pub mod watch;

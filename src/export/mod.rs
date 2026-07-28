@@ -63,7 +63,7 @@ struct AnnotationView<'a> {
 struct HistoryEntry<'a> {
     at: &'a Timestamp,
     actor: Actor,
-    /// `resolved`, `wont_do`, `reopened`, or `addressed_by`.
+    /// `handed_off`, `resolved`, `wont_do`, `reopened`, or `addressed_by`.
     action: &'static str,
     /// The reply or reopen reason recorded with the transition.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -78,6 +78,7 @@ impl<'a> HistoryEntry<'a> {
     /// record no outcome: creation, edits, deletion, restoration.
     fn from_event(event: &'a Event) -> Option<Self> {
         let (action, text, revision) = match &event.kind {
+            EventKind::ReviewerHandedOff => ("handed_off", None, None),
             EventKind::AgentResolved { reply } => ("resolved", reply.as_deref(), None),
             EventKind::AgentWontDo { reply } => ("wont_do", reply.as_deref(), None),
             EventKind::ReviewerReopened { reason } => ("reopened", reason.as_deref(), None),

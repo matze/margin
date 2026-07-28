@@ -169,6 +169,7 @@ mod tests {
                     reply: Some("made burst Option<u32>".into()),
                 },
             ),
+            Event::now(id, Actor::Reviewer, EventKind::ReviewerHandedOff),
             Event::now(id, Actor::Agent, EventKind::AgentResolved { reply: None }),
             Event::now(id, Actor::Agent, EventKind::AgentWontDo { reply: None }),
             Event::now(

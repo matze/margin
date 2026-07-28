@@ -24,6 +24,10 @@ never read or edit the NDJSON store under `.margin/` directly.
    Run from inside the target repository (any subdirectory works; `margin`
    discovers the repo root). Drop `--open` to also see resolved/orphaned items.
 
+   If the reviewer is still annotating, add `--watch`: it blocks until they
+   hand the review off, then prints. Prefer it over re-running `list` in a
+   loop — a listing read mid-review may be missing annotations.
+
 2. **Locate** each annotation in the code. Use `file` + `location` (a 1-based
    `[start, end]` line range). If `location` is `null` the annotation is
    **orphaned** — the anchored lines moved or vanished; fall back to matching
@@ -76,7 +80,7 @@ never read or edit the NDJSON store under `.margin/` directly.
 | `orphaned`      | `true` when the anchor no longer resolves, whatever the `status`. |
 | `anchored_text` | The lines the annotation was attached to (use to relocate if orphaned). |
 | `addressed_by`  | Revisions already recorded as addressing it. |
-| `history`       | Outcomes recorded so far, oldest first: `at`, `actor`, `action` (`resolved` \| `wont_do` \| `reopened` \| `addressed_by`), and the `text` said about it. |
+| `history`       | Outcomes recorded so far, oldest first: `at`, `actor`, `action` (`handed_off` \| `resolved` \| `wont_do` \| `reopened` \| `addressed_by`), and the `text` said about it. |
 
 ## Rules
 

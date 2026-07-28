@@ -797,6 +797,7 @@ impl App {
             Action::EditorSave => self.editor_save(),
             Action::SpawnAgentForAnnotation => self.spawn_agent_for_annotation(),
             Action::SpawnAgentForOpen => self.spawn_agent(AgentScope::AllOpen),
+            Action::HandOff => self.hand_off(),
             Action::ToggleAgentLog => self.agent.log_visible = !self.agent.log_visible,
         }
     }
@@ -1431,6 +1432,38 @@ impl App {
 
         let id = resolved.annotation.id;
         self.spawn_agent(AgentScope::Focused(id));
+    }
+
+    /// Mark the review finished: record a hand-off against every open
+    /// annotation, which releases an agent blocked on `margin list --watch`.
+    fn hand_off(&mut self) {
+        let open: Vec<AnnotationId> = self
+            .annotations
+            .iter()
+            .filter(|resolved| resolved.status == Status::Open)
+            .map(|resolved| resolved.annotation.id)
+            .collect();
+
+        if open.is_empty() {
+            self.status_message = Some("no open annotations to hand off".into());
+            return;
+        }
+
+        let appended = open.iter().try_for_each(|id| {
+            self.store.append(&Event::now(
+                *id,
+                Actor::Reviewer,
+                EventKind::ReviewerHandedOff,
+            ))
+        });
+
+        match appended {
+            Ok(()) => {
+                self.refresh_annotations();
+                self.status_message = Some(format!("handed off {} open", open.len()));
+            }
+            Err(error) => self.status_message = Some(format!("hand-off failed: {error}")),
+        }
     }
 
     /// Launch a headless agent over `scope`, streaming its events into the log.
