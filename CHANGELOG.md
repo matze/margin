@@ -7,24 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0]
+
 ### Added
 
 - A landing page under `docs/`, deployed to GitHub Pages by a new `pages.yml`
   workflow: the loop as a diagram, the four stages of a review, the agent
   contract, install, and the comparison table.
-
 - The README compares margin with tuicr, hunk and lumen on margin's own axes,
   and states the non-goals (forge submission, foreign pull requests, mercurial,
   a full vim modality, a theme gallery, a library API) so the tools that do
   cover them are easy to find.
-
 - Track the annotated commit across amend and rebase on git, not only on jj: a
   commit that history no longer contains is matched against recent commits on
   all refs by author, author date and subject, so `revision_state` reports
   `amended`, `divergent` or `abandoned` there too. The heuristic is weaker than
   jj's change ids — a reworded commit reads as `abandoned` — and `revision_state`
   is now omitted only for annotations on git's working copy.
-
 - `margin list --json` now reports each annotation's `history`: the outcomes
   recorded against it, oldest first, with the reply or reopen reason said about
   each. Replies were written to the log but never read back out, so an agent
