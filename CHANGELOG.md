@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recorded against it, oldest first, with the reply or reopen reason said about
   each. Replies were written to the log but never read back out, so an agent
   re-run could not tell that its previous attempt had been rejected, or why.
+- Hand a finished review off to a waiting agent: `H` in the TUI records that
+  every open annotation is now the agent's to act on, and `margin list --watch`
+  blocks until that happens before printing. An agent can be pointed at a review
+  once instead of polling and guessing when the reviewer is done.
 - `margin install-skill` learned `--print`, writing the skill to stdout instead
   of installing it, and `--dir` for a skills root other than `~/.claude/skills`.
   The skill documents nothing but the CLI, so agents that read an `AGENTS.md` or

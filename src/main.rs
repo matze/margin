@@ -16,7 +16,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Command::List { open, json }) => run_list(*open, *json),
+        Some(Command::List { open, json, watch }) => run_list(*open, *json, *watch),
         Some(Command::Status {
             id,
             state,
@@ -58,10 +58,17 @@ fn discover_backend(forced: Option<Kind>) -> Result<Box<dyn Vcs>> {
 }
 
 /// `margin list`: the agent's read interface. `--json` emits the stable folded
-/// projection; otherwise one human-readable line per annotation.
-fn run_list(open_only: bool, json: bool) -> Result<()> {
+/// projection; otherwise one human-readable line per annotation. `--watch`
+/// blocks until the reviewer hands off, so the listing reflects a finished
+/// review rather than one in progress.
+fn run_list(open_only: bool, json: bool, watch: bool) -> Result<()> {
     let backend = discover_backend(None)?;
     let store = Store::open(backend.root());
+
+    if watch {
+        margin::watch::wait_for_handoff(&store)
+            .context("waiting for the review to be handed off")?;
+    }
 
     let shown: Vec<ResolvedAnnotation> = resolve_all(&store, backend.root(), backend.as_ref())?
         .into_iter()

@@ -1863,6 +1863,7 @@ fn diff_help_line(app: &App) -> Line<'static> {
 
     if app.has_open_annotations() {
         hints.push(("C", "agent all"));
+        hints.push(("H", "hand off"));
     }
 
     hints.extend([
@@ -2206,6 +2207,7 @@ fn describe_event(kind: &EventKind) -> (String, Option<String>) {
             let short: String = revision_id.0.chars().take(7).collect();
             (format!("addressed_by → {short}"), reply.clone())
         }
+        EventKind::ReviewerHandedOff => ("handed off".into(), None),
         EventKind::ReviewerReopened { reason } => ("reopened".into(), reason.clone()),
         EventKind::AnnotationDeleted { reason } => ("deleted".into(), reason.clone()),
         EventKind::AnnotationRestored { reason } => ("restored".into(), reason.clone()),

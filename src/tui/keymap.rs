@@ -63,6 +63,9 @@ pub enum Action {
     SpawnAgentForAnnotation,
     SpawnAgentForOpen,
     ToggleAgentLog,
+    /// Mark the review finished, releasing every open annotation to an agent
+    /// that is waiting on `margin list --watch`.
+    HandOff,
 }
 
 /// Map a key to an action. While `editing`, most keys feed the editor's text
@@ -143,6 +146,7 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('c') => Some(Action::SpawnAgentForAnnotation),
         KeyCode::Char('C') => Some(Action::SpawnAgentForOpen),
         KeyCode::Char('L') => Some(Action::ToggleAgentLog),
+        KeyCode::Char('H') => Some(Action::HandOff),
         _ => None,
     }
 }
@@ -252,6 +256,15 @@ mod tests {
         assert_eq!(
             map(press(KeyCode::Char('c')), true),
             Some(Action::EditorChar('c'))
+        );
+    }
+
+    #[test]
+    fn shift_h_hands_off_but_types_in_editor() {
+        assert_eq!(map(press(KeyCode::Char('H')), false), Some(Action::HandOff));
+        assert_eq!(
+            map(press(KeyCode::Char('H')), true),
+            Some(Action::EditorChar('H'))
         );
     }
 

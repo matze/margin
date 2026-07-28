@@ -71,6 +71,10 @@ pub enum EventKind {
         #[serde(skip_serializing_if = "Option::is_none", default)]
         reply: Option<String>,
     },
+    /// The reviewer finished reviewing the annotation and handed it to an
+    /// agent. Carries no state of its own: it marks the moment the annotation
+    /// became the agent's to act on, which is what a waiting agent watches for.
+    ReviewerHandedOff,
     /// The reviewer rejected the agent's resolution on re-review.
     ReviewerReopened {
         #[serde(skip_serializing_if = "Option::is_none", default)]
