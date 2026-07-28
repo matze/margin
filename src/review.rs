@@ -26,7 +26,7 @@ pub enum RevisionState {
     Divergent { commits: Vec<CommitId> },
     /// The change no longer resolves in history: it was abandoned.
     Abandoned,
-    /// The backend cannot track change identity across history edits (git).
+    /// The backend cannot place the change in current history at all.
     Unsupported,
 }
 

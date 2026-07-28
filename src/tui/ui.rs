@@ -2073,7 +2073,7 @@ fn annotation_screen_span(app: &App, anchor: &Anchor, width: usize) -> Option<(u
 
 /// A line flagging that the anchored change moved in history (amended/rebased),
 /// diverged, or was abandoned. `None` when the change is unchanged or the
-/// backend can't track change identity (git), so the modal stays quiet.
+/// backend can't place it at all, so the modal stays quiet.
 fn revision_state_line(state: &RevisionState, palette: Palette) -> Option<Line<'static>> {
     let (marker, text) = match state {
         RevisionState::Unchanged | RevisionState::Unsupported => return None,

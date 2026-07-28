@@ -176,11 +176,7 @@ impl Vcs for Backend {
             .map(|id| CommitId(id.to_string()))
             .collect();
 
-        Ok(match commits.len() {
-            0 => ChangeCommits::None,
-            1 => ChangeCommits::One(commits.into_iter().next().expect("len checked")),
-            _ => ChangeCommits::Many(commits),
-        })
+        Ok(ChangeCommits::from_commits(commits))
     }
 }
 

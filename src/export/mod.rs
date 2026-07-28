@@ -42,8 +42,8 @@ struct AnnotationView<'a> {
     /// resolved/declined annotation whose lines vanished is still legible.
     orphaned: bool,
     /// How the anchored change stands in history: `unchanged`, `amended`,
-    /// `divergent`, or `abandoned`. Omitted on backends without change identity
-    /// (git), so its presence also signals jj change tracking is in effect.
+    /// `divergent`, or `abandoned`. Omitted when the backend cannot place the
+    /// change at all (an annotation on git's working copy).
     #[serde(skip_serializing_if = "Option::is_none")]
     revision_state: Option<&'static str>,
     /// The change's current commit when it differs from the captured one

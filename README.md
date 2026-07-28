@@ -117,8 +117,8 @@ tracks progress; markers flip live as the agent records outcomes (see [Agent
 handoff](#agent-handoff)). The session is non-blocking — keep navigating while
 it runs.
 
-The timeline (`t`) flags when the annotated change has moved under jj: `~`
-amended/rebased, `!` divergent, `×` abandoned.
+The timeline (`t`) flags when the annotated change has moved: `~` amended or
+rebased, `!` divergent, `×` abandoned.
 
 ## Agent handoff
 
@@ -150,11 +150,21 @@ already tried and why you rejected it.
 agent can be told "review this, I'll wait" once instead of polling for new
 annotations and guessing when you are done.
 
-Under jj, each annotation also reports a `revision_state` (`unchanged`,
-`amended`, `divergent`, or `abandoned`) tracking the annotated change across
-amend/rebase via its change id; `amended` adds `current_commit`. The field is
-omitted on git, which has no stable change identity across history edits, so its
-presence signals jj change tracking is in effect.
+Each annotation also reports a `revision_state` (`unchanged`, `amended`,
+`divergent`, or `abandoned`) tracking the annotated commit across the rewrite
+that fixes it; `amended` adds `current_commit`. The agent can therefore amend or
+rebase what it reviewed and still be told which commit the annotation now sits
+on.
+
+jj derives this exactly, from the change id every rewrite preserves. git has no
+such identity, so margin reconstructs it: a commit no longer reachable from any
+ref is looked for among the last 1000 commits of all refs, matched on the author,
+the author date and the subject — what amend, rebase and cherry-pick leave
+alone. It follows the ordinary cases and degrades where git gives it nothing to
+go on: a reworded or re-authored commit reads as `abandoned`, a commit copied to
+two branches as `divergent`, and a rewrite older than the search window is not
+found. The field is omitted entirely for annotations on git's working copy,
+which is not a commit and leaves nothing behind to match.
 
 The same handoff can be triggered from inside the TUI (`c` / `C`), which spawns
 `claude -p … --output-format stream-json --permission-mode bypassPermissions` in

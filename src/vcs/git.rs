@@ -26,6 +26,47 @@ const DIFF_ARGS_WORKING_COPY: [&str; 5] = [
 /// Stands in for the commit message of uncommitted changes, which have none.
 const UNCOMMITTED_MESSAGE: &str = "(uncommitted changes)";
 
+/// How far back the search for a rewritten commit looks, over all refs. A
+/// rewrite lands near the tip it is reachable from, so a bounded window keeps
+/// the scan cheap on large repositories.
+const REWRITE_SEARCH_LIMIT: &str = "1000";
+
+/// What identifies the same logical commit across a git rewrite. The SHA changes
+/// on amend, rebase and cherry-pick; the authorship and the subject do not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CommitIdentity {
+    author: String,
+    authored_at: String,
+    subject: String,
+}
+
+/// A commit paired with the identity a rewrite of it would carry over.
+struct IdentifiedCommit {
+    commit: CommitId,
+    identity: CommitIdentity,
+}
+
+/// The `git log` format emitting an [`IdentifiedCommit`]'s fields: SHA, author
+/// name, ISO-8601 author date, subject.
+fn identity_format() -> String {
+    format!("--format=%H{FIELD_SEP}%an{FIELD_SEP}%aI{FIELD_SEP}%s")
+}
+
+/// Parse one [`identity_format`] line; malformed lines are dropped.
+fn parse_identity(line: &str) -> Option<IdentifiedCommit> {
+    let mut fields = line.splitn(4, FIELD_SEP);
+    let mut next = || fields.next().map(str::to_string);
+
+    Some(IdentifiedCommit {
+        commit: CommitId(next()?),
+        identity: CommitIdentity {
+            author: next()?,
+            authored_at: next()?,
+            subject: next()?,
+        },
+    })
+}
+
 /// A `git` backend that shells out to the `git` CLI (PRD §6).
 #[derive(Debug, Clone)]
 pub struct Backend {
@@ -99,6 +140,32 @@ impl Backend {
             is_merge: false,
             unique_prefix_len: None,
         })
+    }
+
+    /// The identity a rewrite of `commit` would carry over, or `None` when the
+    /// commit object is no longer readable (pruned).
+    fn identity_of(&self, commit: &CommitId) -> Option<CommitIdentity> {
+        let out = self
+            .run(&["log", "-1", &identity_format(), &commit.0])
+            .ok()?;
+
+        parse_identity(out.trim()).map(|identified| identified.identity)
+    }
+
+    /// Commits a rewrite could have landed on: the recent history of every ref.
+    /// Reflogs are excluded, so a commit that was rewritten away is absent here.
+    fn rewrite_candidates(&self) -> Result<Vec<IdentifiedCommit>, VcsError> {
+        Ok(self
+            .run(&[
+                "log",
+                "--all",
+                "-n",
+                REWRITE_SEARCH_LIMIT,
+                &identity_format(),
+            ])?
+            .lines()
+            .filter_map(parse_identity)
+            .collect())
     }
 
     /// List commits for `range` (e.g. `base..HEAD`, or `HEAD` for fallback).
@@ -242,9 +309,32 @@ impl Vcs for Backend {
         }
     }
 
-    fn change_commits(&self, _target: &ReviewTarget) -> Result<ChangeCommits, VcsError> {
-        // git commit SHAs are not preserved across amend/rebase, so there is no
-        // stable change identity to follow.
-        Ok(ChangeCommits::Unsupported)
+    fn change_commits(&self, target: &ReviewTarget) -> Result<ChangeCommits, VcsError> {
+        // The working copy is not a commit and leaves nothing behind to match a
+        // later rewrite against.
+        let Some(revision) = target.revision() else {
+            return Ok(ChangeCommits::Unsupported);
+        };
+
+        let captured = CommitId(revision.0.clone());
+        let Some(identity) = self.identity_of(&captured) else {
+            return Ok(ChangeCommits::Unsupported);
+        };
+
+        let candidates = self.rewrite_candidates()?;
+
+        // The reviewed commit itself still standing beats any heuristic match:
+        // a copy of it elsewhere does not make the reviewed one a rewrite.
+        if candidates.iter().any(|c| c.commit == captured) {
+            return Ok(ChangeCommits::One(captured));
+        }
+
+        Ok(ChangeCommits::from_commits(
+            candidates
+                .into_iter()
+                .filter(|candidate| candidate.identity == identity)
+                .map(|candidate| candidate.commit)
+                .collect(),
+        ))
     }
 }

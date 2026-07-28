@@ -212,7 +212,7 @@ fn file_at_reads_content_at_revision() {
 }
 
 #[test]
-fn commit_of_is_the_sha_and_change_tracking_is_unsupported() {
+fn commit_of_is_the_sha_and_an_untouched_commit_is_unchanged() {
     let repo = init_repo();
     let path = repo.path();
     let rev = commit(path, "only", &[("f.txt", "x\n")]);
@@ -220,14 +220,124 @@ fn commit_of_is_the_sha_and_change_tracking_is_unsupported() {
     let backend = git_backend(path);
 
     // git has no change identity distinct from the commit, so commit_of echoes
-    // the SHA and change_commits cannot follow a change across history edits.
+    // the SHA and an unrewritten commit resolves to itself.
     assert_eq!(
         backend.commit_of(&rev).unwrap(),
         CommitId(rev.as_str().to_string())
     );
     assert_eq!(
         backend.change_commits(&rev).unwrap(),
+        ChangeCommits::One(CommitId(rev.as_str().to_string()))
+    );
+}
+
+#[test]
+fn the_working_copy_has_no_change_to_track() {
+    let repo = init_repo();
+    let path = repo.path();
+    commit(path, "base", &[("f.txt", "x\n")]);
+    write_files(path, &[("f.txt", "edited\n")]);
+
+    let backend = git_backend(path);
+
+    assert_eq!(
+        backend.change_commits(&ReviewTarget::WorkingCopy).unwrap(),
         ChangeCommits::Unsupported
+    );
+}
+
+#[test]
+fn an_amended_commit_is_followed_to_its_rewrite() {
+    let repo = init_repo();
+    let path = repo.path();
+
+    commit(path, "base", &[("README.md", "hello\n")]);
+    let reviewed = commit(path, "Add limiter", &[("src/limiter.rs", "fn a() {}\n")]);
+
+    write_files(path, &[("src/limiter.rs", "fn a() { todo!() }\n")]);
+    git(path, &["add", "-A"]);
+    git(path, &["commit", "-q", "--amend", "--no-edit"]);
+    let amended = CommitId(git(path, &["rev-parse", "HEAD"]));
+
+    let backend = git_backend(path);
+
+    assert_eq!(
+        backend.change_commits(&reviewed).unwrap(),
+        ChangeCommits::One(amended)
+    );
+}
+
+#[test]
+fn a_rebased_commit_is_followed_to_its_rewrite() {
+    let repo = init_repo();
+    let path = repo.path();
+
+    commit(path, "base", &[("README.md", "hello\n")]);
+    git(path, &["checkout", "-q", "-b", "feature"]);
+    let reviewed = commit(path, "Add limiter", &[("src/limiter.rs", "fn a() {}\n")]);
+
+    // Move the branch point: the same work, a new SHA on a new parent.
+    git(path, &["checkout", "-q", "main"]);
+    commit(path, "Unrelated", &[("docs/notes.md", "notes\n")]);
+    git(path, &["checkout", "-q", "feature"]);
+    git(path, &["rebase", "-q", "main"]);
+    let rebased = CommitId(git(path, &["rev-parse", "HEAD"]));
+
+    let backend = git_backend(path);
+
+    assert_ne!(rebased.0, reviewed.as_str());
+    assert_eq!(
+        backend.change_commits(&reviewed).unwrap(),
+        ChangeCommits::One(rebased)
+    );
+}
+
+#[test]
+fn a_dropped_commit_reads_as_abandoned() {
+    let repo = init_repo();
+    let path = repo.path();
+
+    commit(path, "base", &[("README.md", "hello\n")]);
+    let reviewed = commit(path, "Add limiter", &[("src/limiter.rs", "fn a() {}\n")]);
+    git(path, &["reset", "-q", "--hard", "HEAD~1"]);
+
+    let backend = git_backend(path);
+
+    assert_eq!(
+        backend.change_commits(&reviewed).unwrap(),
+        ChangeCommits::None
+    );
+}
+
+#[test]
+fn two_copies_of_a_rewritten_commit_read_as_divergent() {
+    let repo = init_repo();
+    let path = repo.path();
+
+    commit(path, "base", &[("README.md", "hello\n")]);
+    commit(path, "Unrelated", &[("docs/notes.md", "notes\n")]);
+    git(path, &["checkout", "-q", "-b", "original"]);
+    let reviewed = commit(path, "Add limiter", &[("src/limiter.rs", "fn a() {}\n")]);
+
+    // Land the same work twice, onto parents other than the one it was reviewed
+    // on so both copies are new commits, then drop the branch it came from.
+    git(path, &["checkout", "-q", "-b", "earlier", "main~1"]);
+    git(path, &["cherry-pick", reviewed.as_str()]);
+
+    git(path, &["checkout", "-q", "main"]);
+    commit(path, "Later", &[("docs/later.md", "later\n")]);
+    git(path, &["cherry-pick", reviewed.as_str()]);
+
+    git(path, &["branch", "-D", "original"]);
+
+    let backend = git_backend(path);
+
+    assert!(
+        matches!(
+            backend.change_commits(&reviewed).unwrap(),
+            ChangeCommits::Many(commits) if commits.len() == 2
+        ),
+        "the reviewed commit lives on in two rewrites"
     );
 }
 

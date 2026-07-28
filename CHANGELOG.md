@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Track the annotated commit across amend and rebase on git, not only on jj: a
+  commit that history no longer contains is matched against recent commits on
+  all refs by author, author date and subject, so `revision_state` reports
+  `amended`, `divergent` or `abandoned` there too. The heuristic is weaker than
+  jj's change ids — a reworded commit reads as `abandoned` — and `revision_state`
+  is now omitted only for annotations on git's working copy.
+
 - `margin list --json` now reports each annotation's `history`: the outcomes
   recorded against it, oldest first, with the reply or reopen reason said about
   each. Replies were written to the log but never read back out, so an agent

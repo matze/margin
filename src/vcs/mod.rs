@@ -238,15 +238,16 @@ pub trait Vcs {
 
     /// The commits `target`'s change identity currently resolves to, for
     /// classifying an annotation's revision as unchanged/amended/divergent/
-    /// abandoned at review time.
+    /// abandoned at review time. Exact under jj, heuristic under git.
     fn change_commits(&self, target: &ReviewTarget) -> Result<ChangeCommits, VcsError>;
 }
 
 /// The commits a change identity currently resolves to (PRD §6 change tracking).
 ///
-/// Backends with stable change identity (jj) report whether a change still
-/// exists and at which commit; git has no such identity across history edits and
-/// reports [`ChangeCommits::Unsupported`].
+/// jj resolves this exactly, from the change id every rewrite preserves. git has
+/// no such identity and reconstructs it heuristically from what a rewrite leaves
+/// alone; where even that has nothing to go on it reports
+/// [`ChangeCommits::Unsupported`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChangeCommits {
     /// The change identity no longer resolves: it was abandoned.
@@ -255,8 +256,19 @@ pub enum ChangeCommits {
     One(CommitId),
     /// The change resolves to several commits: it is divergent.
     Many(Vec<CommitId>),
-    /// The backend cannot track change identity across history edits (git).
+    /// The backend cannot say which commits the change resolves to.
     Unsupported,
+}
+
+impl ChangeCommits {
+    /// Classify the commits a change resolved to by how many there are.
+    pub(super) fn from_commits(mut commits: Vec<CommitId>) -> Self {
+        match commits.len() {
+            0 => ChangeCommits::None,
+            1 => ChangeCommits::One(commits.pop().expect("len checked")),
+            _ => ChangeCommits::Many(commits),
+        }
+    }
 }
 
 /// Which backend a repository uses.
