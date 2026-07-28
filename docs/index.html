@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>margin · a review loop that closes</title>
+    <meta
+      name="description"
+      content="A local TUI for code-review annotations over git and jj. You annotate a commit, hand it to your coding agent, and read back what it did. The notes live in the repository and survive amends and rebases."
+    />
+    <meta name="color-scheme" content="dark" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <a class="skip" href="#loop">Skip to the loop</a>
+
+    <!-- N8 · Terminal command nav -->
+    <header class="nav-term">
+      <p class="nav-term__line">
+        <span class="nav-term__prompt" aria-hidden="true">&gt;</span>
+        <span class="nav-term__name">margin</span>
+        <a href="#loop">--loop</a>
+        <a href="#contract">--contract</a>
+        <a href="#install">--install</a>
+        <a href="#compare">--compare</a>
+        <span class="caret" aria-hidden="true">▮</span>
+      </p>
+    </header>
+
+    <main class="wrap" id="top">
+      <section class="hero">
+        <div class="hero__head reveal" style="--i: 0">
+          <h1 class="hero__title">A review loop that <em>closes</em>.</h1>
+          <p class="hero__deck">
+            Agentic development turns you into a reviewer. Most terminal review tools stop at an
+            export you paste into a chat window. margin keeps the review open, and the agent writes
+            its answers back into it as it works.
+          </p>
+          <p class="hero__actions">
+            <a class="link-cta" href="#install">Install</a>
+            <a class="link-cta link-cta--quiet" href="https://github.com/matze/margin">Source</a>
+            <a class="link-cta link-cta--quiet" href="#contract">Agent contract</a>
+          </p>
+        </div>
+
+        <!-- Tier A hand-built loop diagram -->
+        <figure class="loop reveal" style="--i: 1">
+          <ol class="loop__track">
+            <li class="loop__node">
+              <span class="loop__who">you</span>
+              <span class="loop__act">annotate</span>
+              <span class="loop__how">Mark a line or a range in the commit’s diff.</span>
+            </li>
+            <li class="loop__node">
+              <span class="loop__who">you</span>
+              <span class="loop__act">hand off</span>
+              <span class="loop__how">One keypress releases every open annotation at once.</span>
+            </li>
+            <li class="loop__node">
+              <span class="loop__who">agent</span>
+              <span class="loop__act">fix, then report</span>
+              <span class="loop__how">Each note comes back with an answer attached.</span>
+            </li>
+            <li class="loop__node loop__node--live">
+              <span class="loop__who">margin</span>
+              <span class="loop__act">markers flip</span>
+              <span class="loop__how">They land in the review you left open.</span>
+            </li>
+          </ol>
+          <p class="loop__return" aria-hidden="true"><span>re-review the reply</span></p>
+          <figcaption class="loop__cap">
+            One turn of the loop. None of it leaves the repository.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- Narrative Workflow · four stages -->
+      <section class="stages" id="loop">
+        <article class="stage">
+          <h2 class="stage__title"><span class="num">1.0</span>Annotate</h2>
+          <div class="stage__body">
+            <p>
+              Run <code>margin</code> inside the repository. The band lists the commits in
+              <code>&lt;base&gt;..@</code>; navigate files → hunks → lines, press
+              <span class="keycap">v</span> to take a range, <span class="keycap">a</span> to write
+              the note.
+            </p>
+            <p>
+              Uncommitted work is reviewable as it stands. Under jj the working copy is the
+              <code>@</code> revision; under git it leads the list as
+              <code>(uncommitted changes)</code> whenever tracked files differ from
+              <code>HEAD</code>. Your agent left the tree dirty, so that is where the review
+              starts. You don’t have to commit anything first.
+            </p>
+            <p>
+              Annotations append to <code>.margin/annotations.ndjson</code>, an event log that sits
+              in the repository beside the code it describes. Nothing is ever edited in place.
+              Deletion and undo are logged as compensating events, which is what makes the timeline
+              trustworthy and lets an agent write to the log while the TUI is open.
+            </p>
+          </div>
+        </article>
+
+        <article class="stage">
+          <h2 class="stage__title"><span class="num">2.0</span>Hand off</h2>
+          <div class="stage__body">
+            <p>
+              Press <span class="keycap">H</span>. Every open annotation is released to a waiting
+              agent. <code>margin list --json --watch</code>, which blocks until exactly that
+              moment, prints the review and exits.
+            </p>
+            <p>
+              You tell the agent once that you are going to review something, and it waits instead
+              of polling a file on a timer. You can also skip the second terminal:
+              <span class="keycap">c</span> launches a headless agent on the focused annotation and
+              <span class="keycap">C</span> on every open one. <span class="keycap">L</span>
+              streams the session below the diff.
+            </p>
+          </div>
+        </article>
+
+        <article class="stage">
+          <h2 class="stage__title"><span class="num">3.0</span>The agent replies</h2>
+          <div class="stage__body">
+            <p>
+              An outcome is a logged event, and it carries whoever recorded it along with whatever
+              they said about it.
+            </p>
+            <div class="term">
+              <p class="term__label">write side</p>
+              <pre><span class="p">$</span> margin status a3f9 resolved --reply "Hoisted the lock; the loop borrows it now."
+<span class="p">$</span> margin status b71c wont-do  --reply "Deliberate. The retry needs the old error."
+<span class="p">$</span> margin status b71c open     --reason "The old error is discarded two lines down."</pre>
+            </div>
+            <p>
+              Those replies read back out. <code>list --json</code> carries each annotation’s
+              <code>history</code>, oldest first, so a later run already knows what was tried and
+              why you turned it down.
+            </p>
+          </div>
+        </article>
+
+        <article class="stage stage--wide">
+          <h2 class="stage__title"><span class="num">4.0</span>Re-review</h2>
+          <div class="stage__body">
+            <p>
+              margin watches the log. Markers flip in the open TUI as the agent records them,
+              without a restart or a reload. The reply is attached to the line it answers, so there
+              is nothing to reconcile from memory. <span class="keycap">t</span> opens the
+              annotation’s timeline, and <span class="keycap">r</span> reopens one that was closed
+              too early.
+            </p>
+            <figure class="shot">
+              <img
+                src="screenshot-dark.svg"
+                width="800"
+                height="527"
+                alt="margin in the terminal: the annotation overview band above a syntax-highlighted diff, with two inline annotations, one still open and one resolved by an agent with its reply."
+                fetchpriority="high"
+                decoding="async"
+              />
+              <figcaption>
+                The annotation overview above the diff. It is rendered from the real UI, so it
+                stays in sync with it.
+              </figcaption>
+            </figure>
+          </div>
+        </article>
+      </section>
+
+      <section class="rewrite" id="rewrite">
+        <h2 class="section__title">The fix rewrites the commit you annotated.</h2>
+        <p class="lede">
+          That is the normal case. The agent amends or rebases the very revision you were reviewing,
+          and margin follows it there.
+        </p>
+        <p>
+          jj derives this exactly, from the change id that every rewrite preserves. git has no such
+          identity, so margin reconstructs one. A commit that history no longer contains is matched
+          against recent commits on all refs by author, author date and subject, the fields that
+          amend, rebase and cherry-pick leave alone. Where git gives it nothing to go on, margin
+          says which case it landed in.
+        </p>
+        <p class="scroll-hint" aria-hidden="true">scroll the table →</p>
+        <div class="sheet-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">revision_state</th>
+                <th scope="col">The annotated commit</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">unchanged</th>
+                <td>Still in history, exactly where you left it.</td>
+              </tr>
+              <tr>
+                <th scope="row">amended</th>
+                <td>
+                  Rewritten, and followed. The annotation carries the new
+                  <code>current_commit</code>.
+                </td>
+              </tr>
+              <tr>
+                <th scope="row" class="state--signal">divergent</th>
+                <td>Now in more than one place, and margin will not guess which.</td>
+              </tr>
+              <tr>
+                <th scope="row" class="state--signal">abandoned</th>
+                <td>Gone, with nothing left to match. A reworded git commit reads this way.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted">
+          Omitted for annotations on git’s working copy, which has no commit identity to follow.
+        </p>
+      </section>
+
+      <section class="block" id="contract">
+        <h2 class="section__title">The CLI is the contract.</h2>
+        <p class="lede">
+          The agent reads the review and writes its outcomes through these commands. The store
+          itself stays private.
+        </p>
+        <div class="term">
+          <p class="term__label">the whole surface</p>
+          <pre><span class="p">$</span> margin list --json                        <span class="c"># the review, folded and versioned</span>
+<span class="p">$</span> margin list --json --watch                <span class="c"># … but block until the hand-off</span>
+<span class="p">$</span> margin status &lt;id&gt; resolved --reply "…"   <span class="c"># addressed</span>
+<span class="p">$</span> margin status &lt;id&gt; wont-do  --reply "…"   <span class="c"># declined, with a reason</span>
+<span class="p">$</span> margin status &lt;id&gt; open     --reason "…"  <span class="c"># reopened for another pass</span>
+<span class="p">$</span> margin install-skill --print &gt;&gt; AGENTS.md <span class="c"># teach any agent the above</span></pre>
+        </div>
+        <p>
+          <code>list --json</code> folds the event log into the current state of each annotation,
+          including its status, its re-anchored location, the snippet and the history.
+          <code>install-skill</code> writes the same document into a skills root with
+          <code>--dir</code>, or to stdout with <code>--print</code>, for whichever file your agent
+          actually reads.
+        </p>
+      </section>
+
+      <section class="block" id="install">
+        <h2 class="section__title">Install</h2>
+        <div class="term">
+          <p class="term__label">two ways</p>
+          <pre><span class="p">$</span> binge install matze/margin                 <span class="c"># pre-built binary onto $PATH</span>
+<span class="p">$</span> cargo install --git https://github.com/matze/margin</pre>
+        </div>
+        <p>
+          Binaries are on the
+          <a href="https://github.com/matze/margin/releases">releases page</a> and can be dropped
+          anywhere on <code>$PATH</code>;
+          <a href="https://github.com/matze/binge">binge</a> automates that. Building from source
+          needs only an existing Rust toolchain.
+        </p>
+      </section>
+
+      <section class="compare" id="compare">
+        <h2 class="section__title">Next to the neighbours</h2>
+        <p class="lede">
+          margin reviews the commits your agent is about to rewrite, and it keeps that review as
+          state in the repository. The tools below solve neighbouring problems, and the table says
+          where each of them wins.
+        </p>
+        <p class="scroll-hint" aria-hidden="true">scroll the table →</p>
+        <div class="sheet-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">&nbsp;</th>
+                <th scope="col">margin</th>
+                <th scope="col">tuicr</th>
+                <th scope="col">hunk</th>
+                <th scope="col">lumen</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Agent reports outcomes back into the review</th>
+                <td class="y">yes</td>
+                <td class="n">no</td>
+                <td class="n">no</td>
+                <td class="n">no</td>
+              </tr>
+              <tr>
+                <th scope="row">Annotations survive amend or rebase of the reviewed commit</th>
+                <td class="y">yes</td>
+                <td class="n">no</td>
+                <td class="n">no</td>
+                <td class="n">no</td>
+              </tr>
+              <tr>
+                <th scope="row">Annotations stored in the repository</th>
+                <td class="y">yes</td>
+                <td>app-data dir</td>
+                <td>session</td>
+                <td>session</td>
+              </tr>
+              <tr>
+                <th scope="row">Append-only history, undo, per-annotation timeline</th>
+                <td class="y">yes</td>
+                <td class="n">no</td>
+                <td class="n">no</td>
+                <td class="n">no</td>
+              </tr>
+              <tr>
+                <th scope="row">Review stays open, agent updates land in it live</th>
+                <td class="y">yes</td>
+                <td class="n">no</td>
+                <td class="y">yes</td>
+                <td class="n">no</td>
+              </tr>
+              <tr>
+                <th scope="row">Agent launched from inside the review</th>
+                <td class="y">yes</td>
+                <td>via tmux</td>
+                <td class="n">no</td>
+                <td class="n">no</td>
+              </tr>
+              <tr>
+                <th scope="row">Push an inline review to GitHub or GitLab</th>
+                <td class="n">no</td>
+                <td class="y">yes</td>
+                <td class="n">no</td>
+                <td class="n">no</td>
+              </tr>
+              <tr>
+                <th scope="row">Review someone else’s pull request</th>
+                <td class="n">no</td>
+                <td class="y">yes</td>
+                <td class="n">no</td>
+                <td>GitHub</td>
+              </tr>
+              <tr>
+                <th scope="row">AI commit messages, explanations, command generation</th>
+                <td class="n">no</td>
+                <td class="n">no</td>
+                <td class="n">no</td>
+                <td class="y">yes</td>
+              </tr>
+              <tr>
+                <th scope="row">Backends</th>
+                <td>git, jj</td>
+                <td>git, jj, hg</td>
+                <td>git, jj, sapling</td>
+                <td>git, jj</td>
+              </tr>
+              <tr>
+                <th scope="row">Vim model, mouse, theme gallery</th>
+                <td>minimal</td>
+                <td>extensive</td>
+                <td>mouse, themes</td>
+                <td>mouse, themes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="nongoals">
+          <strong>Non-goals.</strong> Pushing an inline review to a forge, reviewing someone else’s
+          pull request, mercurial, a full vim modality, a theme gallery, a stable library API.
+          Conceding that breadth is what keeps the loop small enough to stay correct. If you want a
+          pull-request client, <a href="https://github.com/agavra/tuicr">tuicr</a> is the better
+          tool.
+        </p>
+      </section>
+    </main>
+
+    <footer class="foot-stmt wrap">
+      <p class="foot-stmt__line">The whole review lives in your repository, answers included.</p>
+      <p class="foot-stmt__meta">
+        <span>margin · MIT</span>
+        <span class="foot-stmt__links">
+          <a href="https://github.com/matze/margin">GitHub</a>
+          <a href="https://github.com/matze/margin/releases">Releases</a>
+          <a href="https://github.com/matze/margin#readme">README</a>
+        </span>
+      </p>
+    </footer>
+  </body>
+</html>

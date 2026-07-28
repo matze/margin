@@ -1,0 +1,64 @@
+/* Hallmark · tokens · genre: atmospheric · theme: Terminal
+ * axes: paper=dark (L 14%) · display=mono · accent=phosphor
+ * Every colour and font on the page resolves through this file.
+ */
+
+:root {
+  /* Type ------------------------------------------------------------ */
+  --font-display: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-code: var(--font-display);
+
+  /* Five steps, and no sixth. Labels, captions, code and tables all share
+     --text-sm; every heading below the h1 shares --text-display-s. */
+  --text-sm: 0.8125rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-display-s: clamp(1.6rem, 2.2vw + 0.8rem, 2.25rem);
+  --text-display: clamp(2.25rem, 4.2vw + 0.9rem, 4rem);
+
+  /* Colour — dark paper, phosphor accent, amber signal ---------------- */
+  --color-paper: oklch(14% 0.009 150);
+  --color-paper-2: oklch(17.5% 0.011 150);
+  --color-paper-3: oklch(21% 0.012 150);
+  --color-rule: oklch(31% 0.012 150);
+  --color-neutral: oklch(62% 0.010 150);
+  --color-muted: oklch(76% 0.008 150);
+  --color-ink: oklch(94% 0.006 150);
+  --color-accent: oklch(80% 0.155 148);
+  --color-accent-dim: oklch(60% 0.110 148);
+  --color-signal: oklch(82% 0.130 78);
+  --color-focus: oklch(84% 0.160 148);
+
+  /* Space ------------------------------------------------------------ */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --space-4xl: 9rem;
+  --page-gutter: clamp(1.25rem, 5vw, 4.5rem);
+  --measure: 68ch;
+
+  /* Line ------------------------------------------------------------- */
+  --rule-hair: 1px;
+  --rule-thick: 2px;
+  --radius-sm: 2px;
+
+  /* Motion ----------------------------------------------------------- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+
+  /* Depth ------------------------------------------------------------ */
+  --z-base: 1;
+  --z-raised: 10;
+  --z-sticky: 200;
+}

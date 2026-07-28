@@ -1,0 +1,45 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/index.html
+      - docs/style.css
+      - docs/tokens.css
+      - docs/screenshot-*.svg
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+# One deployment at a time; let a newer commit win.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    name: build and deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      # Stage only the landing page; `docs/` also holds the PRD, which is not
+      # part of the site.
+      - name: stage the site
+        run: |
+          mkdir _site
+          cp docs/index.html docs/style.css docs/tokens.css docs/screenshot-*.svg _site/
+          echo margin.matze.lol > _site/CNAME
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4

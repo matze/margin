@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A landing page under `docs/`, deployed to GitHub Pages by a new `pages.yml`
+  workflow: the loop as a diagram, the four stages of a review, the agent
+  contract, install, and the comparison table.
+
 - The README compares margin with tuicr, hunk and lumen on margin's own axes,
   and states the non-goals (forge submission, foreign pull requests, mercurial,
   a full vim modality, a theme gallery, a library API) so the tools that do

@@ -1,0 +1,715 @@
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R4 V5
+ * Hallmark · genre: atmospheric · macrostructure: Narrative Workflow · theme: Terminal
+ * tone: technical/utilitarian · anchor hue: 148 (phosphor) · enrichment: Tier-A CSS loop diagram
+ * nav: N8 terminal command · footer: Ft5 statement
+ * contrast: pass (40–41) · slop: pass (42–45) · honest: pass (46) · chrome: pass (47)
+ * tokens: pass (48) · responsive: pass (49) · mobile: pass (34, 50–57)
+ */
+
+@import url("tokens.css");
+
+/* Reset ------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  overflow-x: clip;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  overflow-x: clip;
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  font-weight: 400;
+  line-height: 1.6;
+  padding-inline: max(0px, env(safe-area-inset-left));
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-style: normal;
+  color: var(--color-ink);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+  max-width: var(--measure);
+}
+
+/* Only 400 and 600 of the body face are loaded; never let 700 synthesise. */
+strong {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+ol,
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--color-ink);
+  text-decoration-color: var(--color-accent-dim);
+  text-underline-offset: 3px;
+  transition: color var(--dur-micro) var(--ease-out),
+    text-decoration-color var(--dur-micro) var(--ease-out);
+}
+
+a:hover {
+  color: var(--color-accent);
+  text-decoration-color: var(--color-accent);
+}
+
+a:active {
+  color: var(--color-accent-dim);
+}
+
+:focus-visible {
+  outline: var(--rule-thick) solid var(--color-focus);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+figure {
+  margin: 0;
+}
+
+/* Shared ------------------------------------------------------------- */
+
+.wrap {
+  max-width: 78rem;
+  margin-inline: auto;
+  padding-inline: var(--page-gutter);
+}
+
+/* Grid and flex children default to min-width:auto, so a wide table or a long
+   command line would push the page past the viewport instead of scrolling
+   inside its own container. */
+.hero > *,
+.stages > *,
+.stage > *,
+.stage__body > *,
+.block > *,
+.rewrite > *,
+.compare > *,
+.foot-stmt > *,
+.shot > *,
+.term,
+.sheet-scroll {
+  min-width: 0;
+}
+
+.section__title {
+  font-size: var(--text-display-s);
+  max-width: 22ch;
+}
+
+.lede {
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+.muted {
+  color: var(--color-neutral);
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+}
+
+.skip:focus {
+  left: var(--page-gutter);
+  top: var(--space-xs);
+  z-index: var(--z-sticky);
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+  padding: var(--space-xs) var(--space-sm);
+}
+
+/* N8 · Terminal command nav ------------------------------------------ */
+
+.nav-term {
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  background: var(--color-paper);
+}
+
+.nav-term__line {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  margin: 0;
+  padding-block: var(--space-sm);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 1ch;
+  max-width: 78rem;
+  margin-inline: auto;
+  padding-inline: var(--page-gutter);
+}
+
+.nav-term__prompt {
+  color: var(--color-accent);
+}
+
+.nav-term__name {
+  color: var(--color-ink);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.nav-term__line a {
+  color: var(--color-muted);
+  white-space: nowrap;
+  text-decoration: underline;
+}
+
+.caret {
+  display: inline-block;
+  width: 1ch;
+  color: var(--color-accent);
+  animation: blink 1.05s steps(2) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Hero --------------------------------------------------------------- */
+
+.hero {
+  padding-block: clamp(var(--space-xl), 6vw, var(--space-2xl)) var(--space-3xl);
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.hero__head {
+  display: grid;
+  gap: var(--space-lg);
+  max-width: 46rem;
+}
+
+.hero__title {
+  font-size: var(--text-display);
+}
+
+.hero__title em {
+  font-style: normal;
+  color: var(--color-accent);
+}
+
+.hero__deck {
+  font-size: var(--text-md);
+  line-height: 1.5;
+  max-width: 54ch;
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md) var(--space-xl);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  padding-top: var(--space-2xs);
+}
+
+/* C3 · typographic links, no boxes */
+.link-cta {
+  color: var(--color-accent);
+  text-decoration: none;
+  border-bottom: var(--rule-thick) solid var(--color-accent-dim);
+  padding-bottom: var(--space-3xs);
+  white-space: nowrap;
+  transition: border-color var(--dur-micro) var(--ease-out);
+}
+
+.link-cta:hover {
+  border-color: var(--color-accent);
+}
+
+.link-cta:active {
+  border-color: var(--color-accent-dim);
+}
+
+.link-cta--quiet {
+  color: var(--color-muted);
+  border-color: var(--color-rule);
+}
+
+.link-cta--quiet:hover {
+  color: var(--color-ink);
+}
+
+/* Loop diagram — Tier A, hand-built ---------------------------------- */
+
+.loop {
+  border-top: var(--rule-hair) solid var(--color-rule);
+  padding-top: var(--space-lg);
+}
+
+.loop__track {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.loop__node {
+  position: relative;
+  background: var(--color-paper-2);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  padding: var(--space-md);
+  display: grid;
+  gap: var(--space-2xs);
+  align-content: start;
+}
+
+.loop__node::after {
+  content: "↓";
+  position: absolute;
+  inset-block-end: calc(var(--space-md) * -1);
+  inset-inline-start: 50%;
+  transform: translate(-50%, 2px);
+  z-index: var(--z-raised);
+  color: var(--color-accent);
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  line-height: 1;
+}
+
+.loop__node:last-child::after {
+  content: none;
+}
+
+/* Lowercase: the labels read as CLI output, not as editorial eyebrows. */
+.loop__who {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-neutral);
+}
+
+.loop__act {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--color-ink);
+  letter-spacing: -0.02em;
+}
+
+/* Same size as the label above it; the hierarchy is carried by lightness. */
+.loop__how {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.loop__node--live .loop__act {
+  color: var(--color-accent);
+}
+
+.loop__return {
+  position: relative;
+  max-width: none;
+  margin-block-start: var(--space-lg);
+  height: var(--space-xl);
+  border: var(--rule-hair) dashed var(--color-rule);
+  border-block-start: 0;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.loop__return span {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 50%;
+  transform: translate(-50%, 50%);
+  background: var(--color-paper);
+  padding-inline: 1ch;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-neutral);
+  white-space: nowrap;
+}
+
+.loop__cap {
+  margin-block-start: var(--space-lg);
+  font-size: var(--text-sm);
+  color: var(--color-neutral);
+}
+
+.loop__return::before {
+  content: "◀";
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  transform: translate(-1px, 50%);
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+
+@media (min-width: 60rem) {
+  .loop__track {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: var(--space-xl);
+  }
+
+  .loop__node::after {
+    content: "→";
+    inset-block-end: auto;
+    inset-block-start: 50%;
+    inset-inline-start: auto;
+    inset-inline-end: calc(var(--space-xl) * -0.5);
+    transform: translate(50%, -50%);
+  }
+}
+
+/* Stages — Narrative Workflow ---------------------------------------- */
+
+.stages {
+  padding-block: var(--space-md) var(--space-2xl);
+}
+
+.stage {
+  border-top: var(--rule-thick) solid var(--color-rule);
+  padding-block: var(--space-xl) var(--space-2xl);
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.stage:last-child {
+  padding-block-end: var(--space-xl);
+}
+
+.stage__title {
+  font-size: var(--text-display-s);
+}
+
+.stage__title .num {
+  color: var(--color-accent);
+  padding-inline-end: 1ch;
+  font-variant-numeric: tabular-nums;
+}
+
+.stage__body {
+  display: grid;
+  gap: var(--space-md);
+  max-width: var(--measure);
+}
+
+.keycap {
+  font-family: var(--font-display);
+  font-size: 0.9em;
+  color: var(--color-ink);
+  background: var(--color-paper-3);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3xs) 0.5ch;
+  white-space: nowrap;
+}
+
+code {
+  font-family: var(--font-code);
+  font-size: 0.9em;
+  color: var(--color-ink);
+}
+
+/* Wide screens indent the body away from the stage heading — asymmetry
+   without putting the stage number in a left margin beside the title. */
+@media (min-width: 60rem) {
+  .stage__body {
+    margin-inline-start: var(--space-3xl);
+  }
+
+  .stage--wide .stage__body {
+    margin-inline-start: 0;
+    max-width: none;
+  }
+}
+
+/* Figure — real screenshot, hairline frame, no fake chrome ----------- */
+
+.shot {
+  display: grid;
+  gap: var(--space-sm);
+  margin-block-start: var(--space-md);
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-sm);
+}
+
+.shot figcaption {
+  font-size: var(--text-sm);
+  color: var(--color-neutral);
+  max-width: 60ch;
+}
+
+/* Code blocks — typographic frame, no window chrome ------------------ */
+
+.term {
+  margin-block-start: var(--space-lg);
+  border-top: var(--rule-hair) solid var(--color-rule);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  background: var(--color-paper-2);
+}
+
+.term__label {
+  max-width: none;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-neutral);
+  padding: var(--space-xs) var(--space-md);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.term pre {
+  margin: 0;
+  padding: var(--space-md);
+  overflow-x: auto;
+  font-family: var(--font-code);
+  font-size: var(--text-sm);
+  line-height: 1.85;
+  color: var(--color-ink);
+}
+
+.term .p {
+  color: var(--color-accent);
+  user-select: none;
+}
+
+.term .c {
+  color: var(--color-neutral);
+}
+
+/* Spec sheet — F3 ---------------------------------------------------- */
+
+.rewrite {
+  padding-block: var(--space-2xl) var(--space-3xl);
+  border-top: var(--rule-thick) solid var(--color-rule);
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.sheet-scroll {
+  overflow-x: auto;
+  margin-block-start: var(--space-2xs);
+}
+
+/* Narrow viewports scroll the tables sideways; say so rather than letting the
+   first column look like the whole table. */
+.scroll-hint {
+  margin-block-start: var(--space-md);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-accent-dim);
+}
+
+@media (min-width: 60rem) {
+  .scroll-hint {
+    display: none;
+  }
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 34rem;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+th,
+td {
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  padding: var(--space-sm) var(--space-md) var(--space-sm) 0;
+  vertical-align: top;
+}
+
+thead th {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--color-neutral);
+}
+
+tbody th {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.state--signal {
+  color: var(--color-signal);
+}
+
+/* Comparison --------------------------------------------------------- */
+
+.compare {
+  padding-block: var(--space-2xl) var(--space-3xl);
+  border-top: var(--rule-thick) solid var(--color-rule);
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.compare table {
+  min-width: 40rem;
+}
+
+.compare td {
+  color: var(--color-neutral);
+}
+
+.compare .y {
+  color: var(--color-accent);
+  font-family: var(--font-display);
+}
+
+.compare .n {
+  color: var(--color-neutral);
+  font-family: var(--font-display);
+}
+
+.compare tbody th {
+  white-space: normal;
+  font-family: var(--font-body);
+  font-weight: 400;
+  color: var(--color-muted);
+  min-width: 14rem;
+  padding-inline-end: var(--space-lg);
+}
+
+.compare thead th:first-child {
+  min-width: 14rem;
+}
+
+.nongoals {
+  max-width: var(--measure);
+  border-left: var(--rule-thick) solid var(--color-rule);
+  padding-left: var(--space-md);
+  margin-block-start: var(--space-md);
+}
+
+/* Contract · install ------------------------------------------------- */
+
+.block {
+  padding-block: var(--space-2xl) var(--space-3xl);
+  border-top: var(--rule-thick) solid var(--color-rule);
+  display: grid;
+  gap: var(--space-lg);
+}
+
+/* Uneven rhythm: the install block sits tighter than its neighbours. */
+#install {
+  padding-block: var(--space-xl) var(--space-2xl);
+}
+
+/* Ft5 · Statement footer --------------------------------------------- */
+
+.foot-stmt {
+  border-top: var(--rule-thick) solid var(--color-accent-dim);
+  padding-block: var(--space-2xl) var(--space-xl);
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.foot-stmt__line {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--color-ink);
+  font-size: var(--text-display-s);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  max-width: 24ch;
+}
+
+.foot-stmt__meta {
+  max-width: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-lg);
+  justify-content: space-between;
+  align-items: baseline;
+  padding-block-start: var(--space-md);
+  border-top: var(--rule-hair) solid var(--color-rule);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--color-neutral);
+}
+
+.foot-stmt__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-lg);
+}
+
+.foot-stmt__meta a {
+  white-space: nowrap;
+}
+
+/* One orchestrated entrance ------------------------------------------ */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: reveal var(--dur-long) var(--ease-out) forwards;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+@keyframes reveal {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 150ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 150ms !important;
+  }
+
+  .caret {
+    animation: none;
+    opacity: 1;
+  }
+
+  .reveal {
+    transform: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .nav-term__line a,
+  .link-cta {
+    padding-block: var(--space-2xs);
+  }
+}
