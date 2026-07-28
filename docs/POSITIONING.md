@@ -5,6 +5,10 @@
 > records the thesis to defend, the gaps that currently falsify it, and the
 > artifacts needed to make it legible. Not a spec — items graduate into issues
 > and `CHANGELOG.md` entries as they ship.
+>
+> **Status (2026-07-28).** Tier 1 is done except §3.3 (git change tracking);
+> Tier 2 and Tier 3 are untouched. Each shipped item is marked **Done** with the
+> commit that closed it.
 
 ## 1. The neighbour
 
@@ -55,7 +59,7 @@ change-id anchoring):
 
 Without these the thesis is false, or true only with an asterisk.
 
-### 3.1 Export replies and history in `list --json`
+### 3.1 Export replies and history in `list --json` — **Done**
 
 `Resolved { reply }`, `Declined { reply }` and `Reopened { reason }` are logged
 (`src/model/event.rs`) but `AnnotationView` (`src/export/mod.rs`) exposes
@@ -67,14 +71,27 @@ Add `replies` (or a compact `history`: actor, kind, text, revision) to the JSON
 projection. This is the differentiator itself being half-implemented; it ships
 first.
 
-### 3.2 Working-tree / uncommitted review
+*Shipped as a `history` array: one entry per recorded outcome, oldest first,
+with actor, action, timestamp and the text said about it. Events that record no
+outcome stay out, as does a bare `addressed_by` link the top-level field already
+carries.*
+
+### 3.2 Working-tree / uncommitted review — **Done**
 
 Deferred in `PRD.md` §5, and now the wrong call. Agents leave uncommitted
 changes by default, so requiring a commit first puts friction exactly where the
 loop should start. tuicr has `-w`. Today "review your agent's work" means "first
 commit your agent's work".
 
-### 3.3 Change tracking on git, not only jj
+*Narrower than written: jj snapshots the working copy into `@`, which the jj
+backend already listed, so this was a git-only gap. Shipped as a `ReviewTarget`
+enum (`Revision` | `WorkingCopy`) threaded through the `Vcs` trait, anchors, and
+the TUI, rather than a sentinel revision id. On git the working copy leads the
+listing and is diffed against `HEAD`; it has no change identity, so it records
+the commit it sits on. Anchors serialize unchanged, so existing logs still
+load.*
+
+### 3.3 Change tracking on git, not only jj — *open, next up*
 
 `revision_state` is jj-only, so the headline claim holds for a minority of
 users; on git, annotations silently orphan when the agent amends. Stable change
@@ -82,18 +99,28 @@ identity is not required — patch-id or content rematch across a rewrite covers
 the common amend case. Ship whatever degrades gracefully, and document the
 degradation.
 
-### 3.4 A blocking/streaming read for the agent side
+### 3.4 A blocking/streaming read for the agent side — **Done**
 
 tuicr's skill tells agents to poll every 30 seconds. margin should obsolete that
 rather than match it: `margin list --watch` streaming new and changed
 annotations turns "go review, I'll wait" into one command. The log is already
 watched for the TUI's auto-reload, so the mechanism exists.
 
-### 3.5 De-Claude the agent story
+*As first written this was underdesigned: with no "review finished" signal, a
+stream never ends and the agent still cannot tell when to start. Shipped instead
+as an explicit hand-off — `H` in the TUI records a `reviewer_handed_off` event
+per open annotation, and `margin list --watch` blocks until one lands, then
+prints and exits.*
+
+### 3.5 De-Claude the agent story — **Done**
 
 `install-skill` writes only to `~/.claude/skills/`, which makes "agent-first"
 read as "Claude-only". Add other targets (`AGENTS.md` emission, `--agent`), and
 lead the docs with `MARGIN_AGENT_CMD` for the in-TUI launch.
+
+*Shipped as `--print` (write the document to stdout, to redirect wherever an
+agent reads) and `--dir` (any skills root). margin stays out of guessing each
+agent's convention.*
 
 ## 4. Tier 2 — strengthen what exists into arguments
 
@@ -164,6 +191,10 @@ live in `PRD.md` §2 today, where no visitor reads them.
 §3.1 → §3.2 → §3.4 (contract complete, loop demoable) → §3.3 (widens the
 audience) → §5.1/§5.2 (page and table then describe shipped behaviour rather
 than intent) → Tier 2 continuously.
+
+**Remaining:** §3.3, then Tier 2 and Tier 3. The loop is now complete enough to
+demo end to end — annotate, hand off, agent replies, reply reads back — which is
+what §5.1's demo needs to show.
 
 Deliberately not doing: forge submission, mercurial, vim visual/count model,
 theme gallery, clipboard export. Each costs real work and blurs §2.
