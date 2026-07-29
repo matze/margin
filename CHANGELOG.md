@@ -39,6 +39,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the diff on the preview the picker produced like `Enter` does. `t` likewise
   closes the timeline it opened. `Esc` still dismisses, restoring the position
   the picker opened from.
+- A commit's annotation marker now follows its id instead of leading it, in both
+  the context header and the commit picker, and the column is only held open
+  once a commit fills it. Ahead of the id, the cell an unannotated commit left
+  empty indented the header past the file and hunk headers below it and pushed
+  unmarked picker rows three columns off the panel's title. Rows now start where
+  the title does whether or not they carry a marker, with the ids, markers and
+  summaries each in their own column.
+- The commit message beside the commit picker is inset by a column, so it clears
+  the divider the way the list clears the border instead of running flush
+  against it.
 - `q` leaves margin only from the bare diff. With a picker, the timeline, the
   key reference or the agent log open it closes that instead, so reaching for it
   to dismiss an overlay can no longer end the review by accident. `Ctrl-c`

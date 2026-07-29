@@ -212,13 +212,22 @@ fn render_context(frame: &mut Frame, app: &App, area: Rect) {
     let marker = app.commit_marker(&revision.target);
     let short: String = revision.target.as_str().chars().take(7).collect();
 
-    let mut spans = vec![
-        Span::styled(
-            format!(" {} ", marker.map_or(' ', Marker::glyph)),
-            Style::default().fg(marker_color(marker, app.palette)),
+    // The marker follows the id, as it does in the commit picker, and only a
+    // commit carrying annotations spends the cell. Ahead of the id it either
+    // indented the line past the file and hunk headers below or moved the line
+    // as the review annotated commits.
+    let marker_cell = match marker {
+        Some(marker) => Span::styled(
+            format!(" {} ", marker.glyph()),
+            Style::default().fg(marker_color(Some(marker), app.palette)),
         ),
-        Span::styled(short, Style::default().fg(app.palette.revision_prefix)),
+        None => Span::raw(" "),
+    };
+
+    let mut spans = vec![
         Span::raw(" "),
+        Span::styled(short, Style::default().fg(app.palette.revision_prefix)),
+        marker_cell,
         Span::styled(
             revision.summary.clone(),
             Style::default().add_modifier(Modifier::BOLD),
@@ -380,8 +389,16 @@ fn picker_rect(diff_area: Rect, rows: usize) -> Rect {
     }
 }
 
-/// The selected commit's message, scrolled with ctrl-u/d.
+/// The selected commit's message, scrolled with ctrl-u/d. Inset by a column so
+/// the message clears the divider the way the list clears the border, wrapped
+/// lines included.
 fn render_message_body(frame: &mut Frame, app: &App, area: Rect) {
+    let area = Rect {
+        x: area.x + 1,
+        width: area.width.saturating_sub(1),
+        ..area
+    };
+
     frame.render_widget(
         Paragraph::new(commit_message_lines(app))
             .scroll((app.message_scroll as u16, 0))
@@ -457,12 +474,24 @@ fn commit_list_title(app: &App) -> String {
 }
 
 fn commit_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
+    // The marker sits between the id and the summary rather than ahead of the
+    // id, so every row starts where the panel's title does. Held ahead of it,
+    // the column an unmarked commit leaves empty indents that row against the
+    // border. The column is also only held open once some commit fills it.
+    let markers_shown = app
+        .revisions()
+        .iter()
+        .any(|revision| app.commit_marker(&revision.target).is_some());
+
     app.revisions()
         .iter()
         .enumerate()
         .map(|(index, revision)| {
             let marker = app.commit_marker(&revision.target);
-            let glyph = marker.map_or(' ', Marker::glyph);
+            let marker_cell = match markers_shown {
+                true => format!(" {} ", marker.map_or(' ', Marker::glyph)),
+                false => " ".into(),
+            };
             let short: String = revision.target.as_str().chars().take(7).collect();
             let prefix_len = revision
                 .unique_prefix_len
@@ -478,17 +507,16 @@ fn commit_list_lines(app: &App, pane_bg: Color) -> Vec<Line<'static>> {
             let base_style = row_style(selected, pane_bg, app.palette);
 
             Line::from(vec![
-                Span::styled(
-                    format!(" {glyph} "),
-                    Style::default()
-                        .fg(marker_color(marker, app.palette))
-                        .bg(base_style.bg.unwrap_or(pane_bg)),
-                ),
+                Span::styled(" ", base_style),
                 Span::styled(
                     prefix.to_string(),
                     base_style.fg(app.palette.revision_prefix),
                 ),
-                Span::styled(format!("{rest} "), base_style.fg(app.palette.gutter_fg)),
+                Span::styled(rest.to_string(), base_style.fg(app.palette.gutter_fg)),
+                Span::styled(
+                    marker_cell,
+                    base_style.fg(marker_color(marker, app.palette)),
+                ),
                 Span::styled(revision.summary.clone(), base_style),
             ])
         })
