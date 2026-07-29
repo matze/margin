@@ -192,7 +192,21 @@ fn render_agent_log(frame: &mut Frame, app: &App, rect: Rect) {
         .map(|line| Line::from(line.clone()))
         .collect();
 
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: false }),
+        inset_left(inner),
+    );
+}
+
+/// Drop a panel's leftmost column, so its body clears the border instead of
+/// running flush against it. Applied to the rect rather than the text, so
+/// wrapped continuation lines line up with the first.
+fn inset_left(area: Rect) -> Rect {
+    Rect {
+        x: area.x + 1,
+        width: area.width.saturating_sub(1),
+        ..area
+    }
 }
 
 /// The context line above the diff: the loaded commit, the file the cursor sits
@@ -393,11 +407,7 @@ fn picker_rect(diff_area: Rect, rows: usize) -> Rect {
 /// the message clears the divider the way the list clears the border, wrapped
 /// lines included.
 fn render_message_body(frame: &mut Frame, app: &App, area: Rect) {
-    let area = Rect {
-        x: area.x + 1,
-        width: area.width.saturating_sub(1),
-        ..area
-    };
+    let area = inset_left(area);
 
     frame.render_widget(
         Paragraph::new(commit_message_lines(app))

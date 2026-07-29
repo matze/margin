@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   summaries each in their own column.
 - The commit message beside the commit picker is inset by a column, so it clears
   the divider the way the list clears the border instead of running flush
-  against it.
+  against it. The agent log's lines are inset the same way.
 - `q` leaves margin only from the bare diff. With a picker, the timeline, the
   key reference or the agent log open it closes that instead, so reaching for it
   to dismiss an overlay can no longer end the review by accident. `Ctrl-c`
