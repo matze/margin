@@ -75,7 +75,7 @@ second list key switches lists without closing first.
 | `j` / `k`, `↓` / `↑`  | move in the open picker, else in the diff |
 | `Enter`               | keep the picker's preview / annotate the line |
 | `Esc`                 | dismiss the picker / drop a line selection |
-| `?`                   | show every binding; the help bar carries only the common ones |
+| `?`                   | show every binding; the help bar carries only the common ones. Any key closes it again |
 | `H`                   | hand the review off: release every open annotation to a waiting agent |
 | `R`                   | reload revisions, diff, and annotations from disk |
 | `q`                   | quit |

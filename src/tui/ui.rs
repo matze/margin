@@ -1856,7 +1856,7 @@ fn help_line(app: &App) -> Line<'static> {
                 ("esc", "cancel"),
             ],
         },
-        Overlay::Help => &[("esc / ?", "close")],
+        Overlay::Help => &[("any key", "close")],
         Overlay::None => return diff_help_line(app),
     };
 
@@ -1979,7 +1979,7 @@ const KEY_REFERENCE: &[(&str, &[(&str, &str)])] = &[
         &[
             ("s", "split/unified"),
             ("R", "reload from disk"),
-            ("?", "close this"),
+            ("any key", "close this"),
             ("q", "quit"),
         ],
     ),

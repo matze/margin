@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   views change, and it gains the rows the band used to hold.
 - The agent handoff moved from `c` / `C` to `x` / `X`, freeing `c` for the
   commit list.
+- The key reference is dismissed by any key, not just `?` or `Esc`, so a glance
+  at it costs one keystroke to leave and the dismissing key does not also act on
+  the diff.
 
 ### Removed
 

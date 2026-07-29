@@ -24,7 +24,7 @@ use crate::vcs::{
 
 use super::agent::{self, AgentEvent, AgentScope, Outcome};
 use super::emphasis;
-use super::keymap::Action;
+use super::keymap::{Action, KeyContext};
 use super::theme::{Palette, ThemeMode};
 
 /// Lines of source context revealed per expand/collapse step.
@@ -752,6 +752,15 @@ impl App {
         matches!(self.overlay, Overlay::Editor(_))
     }
 
+    /// The context the next key should be mapped in.
+    pub fn key_context(&self) -> KeyContext {
+        match self.overlay {
+            Overlay::Editor(_) => KeyContext::Editor,
+            Overlay::Help => KeyContext::Help,
+            Overlay::None | Overlay::Timeline(_) | Overlay::Picker(_) => KeyContext::Main,
+        }
+    }
+
     /// Fold an action into the state.
     pub fn apply(&mut self, action: Action) {
         self.status_message = None;
@@ -778,7 +787,7 @@ impl App {
             Action::OpenFiles => self.open_picker(PickerKind::Files),
             Action::OpenAnnotations => self.open_picker(PickerKind::Annotations),
             Action::Timeline => self.open_timeline(),
-            Action::ToggleHelp => self.toggle_help(),
+            Action::ShowHelp => self.open_help(),
             Action::Reopen => self.reopen(),
             Action::Reload => self.reload(),
             Action::Edit => self.begin_edit(),
@@ -1254,14 +1263,13 @@ impl App {
         });
     }
 
-    /// Show the key reference, or hide it if it is already up. Any other
-    /// overlay owns the screen, so it keeps it.
-    fn toggle_help(&mut self) {
-        self.overlay = match self.overlay {
-            Overlay::Help => Overlay::None,
-            Overlay::None => Overlay::Help,
-            _ => return,
-        };
+    /// Show the key reference over the diff. Any other overlay owns the screen,
+    /// so it keeps it; the reference itself is dismissed by the next key, which
+    /// arrives as [`Action::Cancel`].
+    fn open_help(&mut self) {
+        if matches!(self.overlay, Overlay::None) {
+            self.overlay = Overlay::Help;
+        }
     }
 
     /// Open the timeline for the focused annotation.

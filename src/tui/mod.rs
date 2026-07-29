@@ -174,7 +174,7 @@ async fn event_loop(
         match wake {
             Wake::Terminal(Some(Ok(Event::Key(key)))) => {
                 if key.kind == KeyEventKind::Press
-                    && let Some(action) = keymap::map(key, app.is_editing())
+                    && let Some(action) = keymap::map(key, app.key_context())
                 {
                     app.apply(action);
 
@@ -249,6 +249,7 @@ fn suspend_and_edit(seed: &app::EditorSeed) -> std::io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
     use std::path::Path;
     use std::process::Command;
@@ -1854,11 +1855,11 @@ impl Limiter {
     }
 
     #[test]
-    fn the_key_reference_toggles_and_lists_every_binding() {
+    fn the_key_reference_lists_every_binding_and_any_key_dismisses_it() {
         let repo = multi_file_fixture();
         let mut app = multi_file_app(repo.path());
 
-        app.apply(keymap::Action::ToggleHelp);
+        app.apply(keymap::Action::ShowHelp);
 
         let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
         let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
@@ -1875,11 +1876,17 @@ impl Limiter {
             );
         }
 
-        app.apply(keymap::Action::ToggleHelp);
-        assert!(
-            matches!(app.overlay, super::app::Overlay::None),
-            "a second press closes it"
-        );
+        for code in [KeyCode::Char('?'), KeyCode::Char('j'), KeyCode::Char('q')] {
+            app.apply(keymap::Action::ShowHelp);
+
+            let action = keymap::map(KeyEvent::new(code, KeyModifiers::NONE), app.key_context());
+            app.apply(action.expect("every key acts on the reference"));
+
+            assert!(
+                matches!(app.overlay, super::app::Overlay::None),
+                "{code:?} should close the reference"
+            );
+        }
     }
 
     #[test]
