@@ -79,7 +79,13 @@ list key switches lists without closing first.
 | `?`                   | show every binding; the help bar carries only the common ones. Any key closes it again |
 | `H`                   | hand the review off: release every open annotation to a waiting agent |
 | `R`                   | reload revisions, diff, and annotations from disk |
-| `q`                   | quit |
+| `q`                   | close whatever is open over the diff, else quit |
+| `Ctrl-c`              | quit from anywhere |
+
+`q` only leaves margin from the bare diff: with a picker, the timeline, the key
+reference or the agent log up, it closes that instead, so reaching for it cannot
+end a review by accident. In the annotation editor it is plain text like any
+other key.
 
 `R` reloads the state an agent wrote while margin stayed open (resolutions,
 edits, new commits); the same reload also runs automatically as soon as the

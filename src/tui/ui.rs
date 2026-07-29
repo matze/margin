@@ -1985,7 +1985,8 @@ const KEY_REFERENCE: &[(&str, &[(&str, &str)])] = &[
             ("s", "split/unified"),
             ("R", "reload from disk"),
             ("any key", "close this"),
-            ("q", "quit"),
+            ("q", "close an overlay, else quit"),
+            ("ctrl-c", "quit from anywhere"),
         ],
     ),
 ];

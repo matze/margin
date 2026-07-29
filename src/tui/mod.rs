@@ -1963,6 +1963,38 @@ impl Limiter {
     }
 
     #[test]
+    fn q_backs_out_of_an_overlay_before_it_leaves_the_app() {
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        open_file_picker(&mut app);
+        app.apply(keymap::Action::Quit);
+
+        assert!(app.picker_kind().is_none(), "q dismisses the picker");
+        assert!(!app.should_quit, "and does not end the review");
+
+        app.agent.log_visible = true;
+        app.apply(keymap::Action::Quit);
+
+        assert!(!app.agent.log_visible, "q hides the agent log");
+        assert!(!app.should_quit);
+
+        app.apply(keymap::Action::Quit);
+        assert!(app.should_quit, "from the bare diff it quits");
+    }
+
+    #[test]
+    fn ctrl_c_leaves_the_app_even_with_an_overlay_open() {
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        open_file_picker(&mut app);
+        app.apply(keymap::Action::ForceQuit);
+
+        assert!(app.should_quit);
+    }
+
+    #[test]
     fn moving_the_file_picker_previews_the_file_in_the_diff() {
         use super::app::{PickerKind, Row};
 

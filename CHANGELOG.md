@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the diff on the preview the picker produced like `Enter` does. `t` likewise
   closes the timeline it opened. `Esc` still dismisses, restoring the position
   the picker opened from.
+- `q` leaves margin only from the bare diff. With a picker, the timeline, the
+  key reference or the agent log open it closes that instead, so reaching for it
+  to dismiss an overlay can no longer end the review by accident. `Ctrl-c`
+  still quits from anywhere.
 
 ### Removed
 

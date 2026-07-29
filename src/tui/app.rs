@@ -766,7 +766,8 @@ impl App {
         self.status_message = None;
 
         match action {
-            Action::Quit => self.should_quit = true,
+            Action::Quit => self.quit_or_close(),
+            Action::ForceQuit => self.should_quit = true,
             Action::Up => self.move_up(),
             Action::Down => self.move_down(),
             Action::HalfPageUp => self.move_page(Direction::Up),
@@ -1208,6 +1209,18 @@ impl App {
             && let Some(index) = self.annotations.iter().position(|a| a.id() == id)
         {
             self.annotation_cursor = index;
+        }
+    }
+
+    /// `q`: leave the app, but only from the bare diff. With anything drawn over
+    /// it the key backs out one level instead, so reaching for it to close an
+    /// overlay cannot end the review by accident. `Ctrl-c` still leaves from
+    /// anywhere.
+    fn quit_or_close(&mut self) {
+        match (&self.overlay, self.agent.log_visible) {
+            (Overlay::None, false) => self.should_quit = true,
+            (Overlay::None, true) => self.agent.log_visible = false,
+            _ => self.cancel(),
         }
     }
 

@@ -20,7 +20,10 @@ pub enum KeyContext {
 /// A semantic action produced by a key press.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
+    /// Leave the app, or back out of whatever is drawn over the diff.
     Quit,
+    /// Leave the app from any context.
+    ForceQuit,
     Up,
     Down,
     HalfPageUp,
@@ -83,7 +86,7 @@ pub fn map(key: KeyEvent, context: KeyContext) -> Option<Action> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
     if ctrl && matches!(key.code, KeyCode::Char('c')) {
-        return Some(Action::Quit);
+        return Some(Action::ForceQuit);
     }
 
     match context {
@@ -365,7 +368,7 @@ mod tests {
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
 
         for context in [KeyContext::Main, KeyContext::Editor, KeyContext::Help] {
-            assert_eq!(map(ctrl_c, context), Some(Action::Quit));
+            assert_eq!(map(ctrl_c, context), Some(Action::ForceQuit));
         }
     }
 
