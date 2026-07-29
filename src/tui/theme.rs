@@ -239,6 +239,13 @@ pub struct Palette {
     pub annotated_line_bg: Color,
     /// Background for an inline annotation block (distinct from add/remove).
     pub annotation_bg: Color,
+    /// Background for a cell behind a panel that inherits the terminal's
+    /// background, which has no channels of its own to darken.
+    pub backdrop_bg: Color,
+    /// How far a tinted background behind a panel is darkened, in percent of
+    /// its original brightness. Applied to every channel alike, so a row keeps
+    /// its hue and loses only light.
+    pub backdrop_scale: u16,
     /// Foreground for line-number gutters and secondary text.
     pub gutter_fg: Color,
     /// Foreground for a revision id's shortest unique prefix in the listing.
@@ -259,6 +266,8 @@ pub struct Palette {
     pub marker_resolved: Color,
     /// Foreground for an orphaned/attention marker.
     pub marker_attention: Color,
+    /// Foreground for the border of the panel holding the keyboard.
+    pub border_active: Color,
 }
 
 /// The ANSI foreground accents shared by every mode; the background fields are
@@ -274,6 +283,7 @@ const ANSI_FOREGROUNDS: Palette = Palette {
     marker_open: Color::Yellow,
     marker_resolved: Color::Green,
     marker_attention: Color::Red,
+    border_active: Color::Cyan,
     add_bg: Color::Reset,
     remove_bg: Color::Reset,
     add_emph_bg: Color::Reset,
@@ -284,6 +294,8 @@ const ANSI_FOREGROUNDS: Palette = Palette {
     text_cursor_fg: Color::Reset,
     annotated_line_bg: Color::Reset,
     annotation_bg: Color::Reset,
+    backdrop_bg: Color::Reset,
+    backdrop_scale: 100,
 };
 
 impl Palette {
@@ -301,6 +313,8 @@ impl Palette {
                 text_cursor_fg: Color::Rgb(22, 26, 33),
                 annotated_line_bg: Color::Rgb(40, 38, 22),
                 annotation_bg: Color::Rgb(54, 50, 28),
+                backdrop_bg: Color::Rgb(6, 6, 6),
+                backdrop_scale: 30,
                 ..ANSI_FOREGROUNDS
             },
             ThemeMode::Light => Palette {
@@ -314,6 +328,8 @@ impl Palette {
                 text_cursor_fg: Color::Rgb(248, 250, 252),
                 annotated_line_bg: Color::Rgb(250, 246, 214),
                 annotation_bg: Color::Rgb(246, 238, 198),
+                backdrop_bg: Color::Rgb(222, 222, 222),
+                backdrop_scale: 88,
                 ..ANSI_FOREGROUNDS
             },
         }

@@ -49,6 +49,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The commit message beside the commit picker is inset by a column, so it clears
   the divider the way the list clears the border instead of running flush
   against it. The agent log's lines are inset the same way.
+- The panel holding the keyboard now says so: a picker, the timeline and the key
+  reference draw their border in cyan and sink the diff they cover toward a new
+  backdrop background, while the agent log — which the diff stays navigable
+  beside — keeps its gutter-colored border. Nothing marked the active surface
+  before, so an open picker read as one more pane. A tinted background is
+  darkened by scaling its channels rather than blended toward the backdrop, so
+  added, removed and annotated rows keep their hue and stay recognizable while
+  they are out of play.
 - `q` leaves margin only from the bare diff. With a picker, the timeline, the
   key reference or the agent log open it closes that instead, so reaching for it
   to dismiss an overlay can no longer end the review by accident. `Ctrl-c`

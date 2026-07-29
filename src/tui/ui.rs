@@ -143,7 +143,13 @@ pub fn render(frame: &mut Frame, app: &mut App, highlighter: &Highlighter) {
     render_diff(frame, app, highlighter, rows[2]);
     render_help(frame, app, rows[4]);
 
-    // The editor renders inline within the diff (see build_attachments).
+    // The editor renders inline within the diff (see build_attachments), so it
+    // is annotating what surrounds it and the diff keeps its colors. A panel
+    // takes the keyboard off the diff, which becomes backdrop until it returns.
+    if app.picker_kind().is_some() || matches!(app.overlay, Overlay::Timeline(_) | Overlay::Help) {
+        recede_behind_panel(frame, rows[2], app.palette);
+    }
+
     match app.picker_kind() {
         Some(kind) => render_picker(frame, app, kind, rows[2]),
         None if matches!(app.overlay, Overlay::Timeline(_)) => render_timeline(frame, app, rows[2]),
@@ -176,7 +182,7 @@ fn render_agent_log(frame: &mut Frame, app: &App, rect: Rect) {
         true => " agent · running ".to_string(),
         false => " agent · idle ".to_string(),
     };
-    let block = modal_block(title, app.palette);
+    let block = panel_block(title, app.palette, PanelFocus::Passive);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
 
@@ -349,7 +355,7 @@ fn render_picker(frame: &mut Frame, app: &mut App, kind: PickerKind, diff_area: 
     let rect = picker_rect(diff_area, rows);
     frame.render_widget(Clear, rect);
 
-    let block = modal_block(format!(" {title} "), app.palette);
+    let block = panel_block(format!(" {title} "), app.palette, PanelFocus::Active);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
 
@@ -2038,7 +2044,7 @@ fn render_key_reference(frame: &mut Frame, app: &App, diff_area: Rect) {
     let rect = centered_rect(diff_area, KEY_REFERENCE_WIDTH, height);
     frame.render_widget(Clear, rect);
 
-    let block = modal_block(" keys ".into(), app.palette);
+    let block = panel_block(" keys ".into(), app.palette, PanelFocus::Active);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
 
@@ -2159,7 +2165,7 @@ fn render_timeline(frame: &mut Frame, app: &App, diff_area: Rect) {
     let rect = timeline_rect(app, diff_area, width, lines.len());
     frame.render_widget(Clear, rect);
 
-    let block = modal_block(title, app.palette);
+    let block = panel_block(title, app.palette, PanelFocus::Active);
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
 
@@ -2446,10 +2452,61 @@ fn render_divider(frame: &mut Frame, area: Rect, palette: Palette) {
 /// A bordered block for a modal overlay (popups keep a border; main panes do not).
 /// The border uses the muted gutter color so it reads as quiet chrome around the
 /// content rather than a loud frame.
-fn modal_block(title: String, palette: Palette) -> Block<'static> {
+/// Whether a bordered panel is the one taking keys right now.
+enum PanelFocus {
+    /// Modal: it holds the keyboard until it is dismissed.
+    Active,
+    /// It sits beside a diff that keeps the keyboard.
+    Passive,
+}
+
+/// A bordered panel. The panel holding the keyboard draws its border in the
+/// active color, the one the diff is navigated beside in the gutter color, so
+/// which surface is live reads without being read.
+fn panel_block(title: String, palette: Palette, focus: PanelFocus) -> Block<'static> {
+    let color = match focus {
+        PanelFocus::Active => palette.border_active,
+        PanelFocus::Passive => palette.gutter_fg,
+    };
+
     Block::bordered()
         .title(title)
-        .border_style(Style::default().fg(palette.gutter_fg))
+        .border_style(Style::default().fg(color))
+}
+
+/// Sink what an active panel is drawn over toward [`Palette::backdrop_bg`], so
+/// the panel reads as the lit surface over a diff that is still legible.
+fn recede_behind_panel(frame: &mut Frame, area: Rect, palette: Palette) {
+    let buffer = frame.buffer_mut();
+
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let cell = &mut buffer[(x, y)];
+            let receded = recede(cell.bg, palette);
+            cell.set_bg(receded);
+        }
+    }
+}
+
+/// Darken a background for the backdrop. Every channel is scaled by the same
+/// factor, so the color keeps its hue and loses only light — blending toward the
+/// backdrop instead would wash an added row's green into the backdrop's own
+/// cast. A cell inheriting the terminal's background has no channels to scale
+/// and takes the backdrop color itself.
+fn recede(color: Color, palette: Palette) -> Color {
+    match color {
+        Color::Rgb(red, green, blue) => Color::Rgb(
+            darken(red, palette.backdrop_scale),
+            darken(green, palette.backdrop_scale),
+            darken(blue, palette.backdrop_scale),
+        ),
+        _ => palette.backdrop_bg,
+    }
+}
+
+/// One channel at `scale` percent of its brightness.
+fn darken(channel: u8, scale: u16) -> u8 {
+    (u16::from(channel) * scale / 100) as u8
 }
 
 /// The gutter glyph for an annotated line: a top hook on the first line, then a

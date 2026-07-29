@@ -1995,6 +1995,54 @@ impl Limiter {
     }
 
     #[test]
+    fn an_open_panel_sinks_the_diff_behind_it_and_stays_lit_itself() {
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+        let backdrop = app.palette.backdrop_bg;
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+
+        let bg = |terminal: &Terminal<TestBackend>, x: u16, y: u16| {
+            terminal.backend().buffer()[(x, y)].bg
+        };
+
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+        assert_ne!(
+            bg(&terminal, 0, 8),
+            backdrop,
+            "with no panel open the diff is the live surface"
+        );
+
+        app.apply(keymap::Action::OpenCommits);
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        assert_eq!(
+            bg(&terminal, 0, 8),
+            backdrop,
+            "the diff behind the panel recedes to the backdrop"
+        );
+        assert_ne!(
+            bg(&terminal, 0, 2),
+            backdrop,
+            "the panel's own surface stays lit"
+        );
+        assert_ne!(
+            bg(&terminal, 0, 0),
+            backdrop,
+            "the context header is not behind the panel"
+        );
+        assert_ne!(
+            bg(&terminal, 0, 19),
+            backdrop,
+            "the help bar carries the panel's own keys"
+        );
+    }
+
+    #[test]
     fn moving_the_file_picker_previews_the_file_in_the_diff() {
         use super::app::{PickerKind, Row};
 
