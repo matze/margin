@@ -65,13 +65,14 @@ The commit, file and annotation lists open as pickers over the diff, each on its
 own key — there is no focus to toggle and no view to cycle. Moving a picker's
 cursor previews the target in the diff behind it: `Enter` keeps that preview and
 closes the picker, `Esc` discards it and puts the diff back where it was. A
-second list key switches lists without closing first.
+list's own key toggles it, closing it on the preview like `Enter`; a different
+list key switches lists without closing first.
 
 | Key                   | Action                                            |
 | --------------------- | --- |
-| `c`                   | open the commit picker (`Ctrl-u` / `Ctrl-d` scroll the message beside it) |
-| `f`                   | open the file picker |
-| `A`                   | open the annotation overview |
+| `c`                   | toggle the commit picker (`Ctrl-u` / `Ctrl-d` scroll the message beside it) |
+| `f`                   | toggle the file picker |
+| `A`                   | toggle the annotation overview |
 | `j` / `k`, `↓` / `↑`  | move in the open picker, else in the diff |
 | `Enter`               | keep the picker's preview / annotate the line |
 | `Esc`                 | dismiss the picker / drop a line selection |
@@ -106,7 +107,7 @@ While hovering an annotation:
 | `r`                   | reopen a closed annotation    |
 | `d`                   | delete                        |
 | `u`                   | undo earlier deletion         |
-| `t`                   | open the timeline             |
+| `t`                   | toggle the timeline           |
 
 In the annotation editor:
 

@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The key reference is dismissed by any key, not just `?` or `Esc`, so a glance
   at it costs one keystroke to leave and the dismissing key does not also act on
   the diff.
+- A picker's own key now closes it: `c`, `f` and `A` toggle their list, leaving
+  the diff on the preview the picker produced like `Enter` does. `t` likewise
+  closes the timeline it opened. `Esc` still dismisses, restoring the position
+  the picker opened from.
 
 ### Removed
 

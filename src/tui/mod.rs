@@ -1369,6 +1369,17 @@ impl Limiter {
     }
 
     #[test]
+    fn t_closes_the_timeline_it_opened() {
+        let repo = fixture();
+        let mut app = app_with_annotation(repo.path());
+
+        app.apply(keymap::Action::Timeline);
+        app.apply(keymap::Action::Timeline);
+
+        assert!(matches!(app.overlay, super::app::Overlay::None));
+    }
+
+    #[test]
     fn timeline_popup_does_not_cover_the_annotation() {
         let repo = fixture();
         let mut app = app_with_annotation(repo.path());
@@ -1921,6 +1932,34 @@ impl Limiter {
             app.apply(keymap::Action::Cancel);
             assert!(app.picker_kind().is_none(), "esc closes it again");
         }
+    }
+
+    #[test]
+    fn a_list_key_closes_the_picker_it_opened_keeping_the_preview() {
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        open_file_picker(&mut app);
+        app.apply(keymap::Action::Down);
+        let previewed = app.diff_cursor;
+
+        app.apply(keymap::Action::OpenFiles);
+
+        assert!(app.picker_kind().is_none(), "f closes the file picker");
+        assert_eq!(app.diff_cursor, previewed, "and keeps what it previewed");
+    }
+
+    #[test]
+    fn another_list_key_switches_lists_instead_of_closing() {
+        use super::app::PickerKind;
+
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        open_file_picker(&mut app);
+        app.apply(keymap::Action::OpenCommits);
+
+        assert_eq!(app.picker_kind(), Some(PickerKind::Commits));
     }
 
     #[test]

@@ -1174,9 +1174,16 @@ impl App {
 
     /// Open `kind` over the diff, parking its cursor on what the diff already
     /// shows and recording the position to return to if it is dismissed. Each
-    /// list key reaches its list directly, including from another picker.
+    /// list key reaches its list directly, including from another picker, and
+    /// toggles the list it opened.
     fn open_picker(&mut self, kind: PickerKind) {
         let restore = match &self.overlay {
+            // A list's own key closes it on the preview it produced, like
+            // `Enter`; `Esc` remains the way to undo the preview.
+            Overlay::Picker(picker) if picker.kind == kind => {
+                self.overlay = Overlay::None;
+                return;
+            }
             // Switching lists keeps the first picker's recorded position, so a
             // dismissal still returns to where the reviewer left the diff.
             Overlay::Picker(picker) => picker.restore,
@@ -1272,8 +1279,14 @@ impl App {
         }
     }
 
-    /// Open the timeline for the focused annotation.
+    /// Open the timeline for the focused annotation, or close it if `t` opened
+    /// it already.
     fn open_timeline(&mut self) {
+        if matches!(self.overlay, Overlay::Timeline(_)) {
+            self.overlay = Overlay::None;
+            return;
+        }
+
         match self.focused_annotation().map(ResolvedAnnotation::id) {
             Some(annotation_id) => {
                 self.overlay = Overlay::Timeline(Timeline {
