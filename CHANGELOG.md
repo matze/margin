@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The `margin-review` skill now resolves every annotation's location before it
+  edits anything, groups annotations that touch the same region so one change
+  covers them together, and runs the project's checks per group instead of once
+  at the end. Previously it walked the listing item by item, which let the first
+  edit invalidate the line ranges of the remaining annotations in that file.
+- The `margin-review` skill states that the project's checks run even for an
+  edit that looks trivially safe, says what to do when they fail or when an
+  annotation conflicts with the repo's conventions, collects the store
+  prohibition and the other hazards under `## Gotchas`, carries a worked example,
+  and names the `margin` version its JSON field table describes.
+
 ## [0.13.0]
 
 ### Added
