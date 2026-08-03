@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0]
+
 ### Changed
 
 - Annotations the agent closed (resolved or declined) no longer draw their inline
