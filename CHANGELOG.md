@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Annotations the agent closed (resolved or declined) no longer draw their inline
+  block in the diff. The lines they cover keep a gutter icon (`✓`) instead of the
+  bracket, so a finished annotation stays findable without spending diff rows on
+  a note nobody has to act on. `S` draws every closed annotation's block again
+  and collapses them back; hovering one still edits, deletes, reopens or shows
+  its timeline, and the annotation overview (`A`) lists it either way.
 - The `margin-review` skill now resolves every annotation's location before it
   edits anything, groups annotations that touch the same region so one change
   covers them together, and runs the project's checks per group instead of once

@@ -22,8 +22,8 @@ use crate::review::{ResolvedAnnotation, RevisionState};
 use crate::vcs::{ChangeKind, DiffLine, DiffLineKind, ListingSource};
 
 use super::app::{
-    App, DiffView, EditorMode, LineMarker, Marker, Overlay, PickerKind, Row, SpanPosition,
-    keep_in_view,
+    App, DiffView, EditorMode, LineMarker, Marker, MarkerShape, Overlay, PickerKind, Row,
+    SpanPosition, keep_in_view,
 };
 use super::emphasis;
 use super::highlight::Highlighter;
@@ -1077,6 +1077,11 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
             continue;
         }
 
+        // A collapsed annotation keeps only its gutter icon.
+        if !app.resolved_blocks.draws(resolved.status) {
+            continue;
+        }
+
         let Some(file_index) = app.file_index_of(&anchor.file) else {
             continue;
         };
@@ -1099,6 +1104,7 @@ fn build_attachments(app: &App, width: usize) -> Attachments {
             app.palette,
             width,
             &layout,
+            editor_opening(app, editor),
         ));
     }
 
@@ -1167,6 +1173,24 @@ fn block_layout(app: &App, width: usize, side: Side) -> BlockLayout {
                 trailer: vec![divider(), blank(width.saturating_sub(cell_width + 1))],
             }
         }
+    }
+}
+
+/// The editor block's first bracket glyph. Editing continues the bracket the
+/// annotated lines above already opened; creating opens its own — as does
+/// editing a collapsed annotation, whose lines carry a standalone icon with no
+/// bracket to continue.
+fn editor_opening(app: &App, editor: &super::app::Editor) -> char {
+    let continues = match &editor.mode {
+        EditorMode::Create(_) => false,
+        EditorMode::Edit(id) => app
+            .annotation(*id)
+            .is_some_and(|resolved| app.resolved_blocks.draws(resolved.status)),
+    };
+
+    match continues {
+        true => '│',
+        false => '┌',
     }
 }
 
@@ -1241,12 +1265,14 @@ fn annotation_block(
 }
 
 /// The inline editor block: a title line, the body with a text cursor, and a key
-/// hint, wrapped in a self-contained bracket on the annotation background.
+/// hint, wrapped in a bracket on the annotation background. `opening` is the
+/// bracket's first glyph — see [`editor_opening`].
 fn editor_block(
     editor: &super::app::Editor,
     palette: Palette,
     width: usize,
     layout: &BlockLayout,
+    opening: char,
 ) -> Vec<Line<'static>> {
     let bg = palette.annotation_bg;
     let bar_color = palette.marker_open;
@@ -1321,12 +1347,6 @@ fn editor_block(
 
     contents.push(hint);
 
-    // When editing, the annotated lines above already opened the bracket, so the
-    // block continues it; when creating, the block opens its own.
-    let opening = match editor.mode {
-        EditorMode::Create(_) => '┌',
-        EditorMode::Edit(_) => '│',
-    };
     let last = contents.len() - 1;
 
     contents
@@ -1485,19 +1505,24 @@ fn sign_for(kind: DiffLineKind, palette: Palette) -> (char, Color) {
     }
 }
 
-/// The leading marker-gutter span: the annotation glyph followed by a space.
+/// The leading marker-gutter span: the annotation glyph followed by a space. A
+/// bracket belongs to the shape its inline block closes and stays in the accent
+/// color; a standalone icon carries its annotation's status color, since that is
+/// all the status it can show.
 fn marker_span(
     marker: Option<LineMarker>,
     bg: Color,
     modifier: Modifier,
     palette: Palette,
 ) -> Span<'static> {
+    let color = match marker.map(|line_marker| line_marker.shape) {
+        Some(MarkerShape::Icon) => marker_color(marker.map(|m| m.marker), palette),
+        _ => palette.marker_open,
+    };
+
     Span::styled(
         format!("{} ", marker.map_or(' ', marker_glyph)),
-        Style::default()
-            .fg(palette.marker_open)
-            .bg(bg)
-            .add_modifier(modifier),
+        Style::default().fg(color).bg(bg).add_modifier(modifier),
     )
 }
 
@@ -1927,8 +1952,14 @@ fn diff_help_line(app: &App) -> Line<'static> {
         ("a", "annotate"),
     ];
 
-    if app.annotation_at_cursor().is_some() {
+    if let Some(resolved) = app.annotation_at_cursor() {
         hints.extend([("e", "edit"), ("d", "delete"), ("x", "agent")]);
+
+        // The collapsed annotation under the cursor is the moment its reveal key
+        // is worth naming.
+        if !app.resolved_blocks.draws(resolved.status) {
+            hints.push(("S", "show resolved"));
+        }
     }
 
     if app.has_open_annotations() {
@@ -2027,6 +2058,7 @@ const KEY_REFERENCE: &[(&str, &[(&str, &str)])] = &[
         "view",
         &[
             ("s", "split/unified"),
+            ("S", "show/collapse resolved"),
             ("R", "reload from disk"),
             ("any key", "close this"),
             ("q", "close an overlay, else quit"),
@@ -2511,11 +2543,14 @@ fn darken(channel: u8, scale: u16) -> u8 {
 
 /// The gutter glyph for an annotated line: a top hook on the first line, then a
 /// vertical bar. The bracket is closed (`└`) by the inline annotation block that
-/// hangs below the range, so every annotation reads as one connected shape.
+/// hangs below the range, so every annotation reads as one connected shape. With
+/// that block collapsed there is nothing to close, so the line carries the
+/// annotation's status glyph instead.
 fn marker_glyph(line_marker: LineMarker) -> char {
-    match line_marker.position {
-        SpanPosition::Single | SpanPosition::Start => '┌',
-        SpanPosition::Middle | SpanPosition::End => '│',
+    match line_marker.shape {
+        MarkerShape::Bracket(SpanPosition::Single | SpanPosition::Start) => '┌',
+        MarkerShape::Bracket(SpanPosition::Middle | SpanPosition::End) => '│',
+        MarkerShape::Icon => line_marker.marker.glyph(),
     }
 }
 

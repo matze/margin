@@ -1084,6 +1084,143 @@ impl Limiter {
     }
 
     #[test]
+    fn a_resolved_annotation_collapses_to_a_gutter_icon_until_it_is_shown() {
+        use super::app::{Marker, MarkerShape, ResolvedBlocks};
+        use crate::model::{Actor, Event, EventKind, Status};
+        use crate::store::Store;
+
+        let repo = fixture();
+        let mut app = app_with_annotation(repo.path());
+        let anchor = app.annotations()[0].annotation.anchor.clone();
+        let file_index = app.file_index_of(&anchor.file).unwrap();
+        let line = anchor.start_line.get();
+
+        Store::open(repo.path())
+            .append(&Event::now(
+                app.annotations()[0].id(),
+                Actor::Agent,
+                EventKind::AgentResolved { reply: None },
+            ))
+            .unwrap();
+        app.reload();
+        assert_eq!(app.annotations()[0].status, Status::Resolved);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(110, 30)).unwrap();
+
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+        let collapsed = terminal.backend().to_string();
+
+        assert!(
+            !collapsed.contains("needs docs"),
+            "the resolved body is out of the diff:\n{collapsed}"
+        );
+        assert_eq!(
+            app.line_marker(file_index, anchor.side, line),
+            Some(super::app::LineMarker {
+                marker: Marker::Resolved,
+                shape: MarkerShape::Icon,
+            }),
+            "its line still carries the resolved icon"
+        );
+        assert!(
+            collapsed.contains(Marker::Resolved.glyph()),
+            "the icon reaches the screen:\n{collapsed}"
+        );
+
+        app.apply(keymap::Action::ToggleResolved);
+        assert_eq!(app.resolved_blocks, ResolvedBlocks::Expanded);
+
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+        let shown = terminal.backend().to_string();
+
+        assert!(
+            shown.contains("needs docs"),
+            "showing resolved annotations brings the block back:\n{shown}"
+        );
+        assert!(
+            matches!(
+                app.line_marker(file_index, anchor.side, line)
+                    .map(|m| m.shape),
+                Some(MarkerShape::Bracket(_))
+            ),
+            "and its gutter reverts to the bracket the block closes"
+        );
+    }
+
+    #[test]
+    fn editing_a_collapsed_annotation_opens_its_own_bracket() {
+        use crate::model::{Actor, Event, EventKind};
+        use crate::store::Store;
+
+        let repo = fixture();
+        let mut app = app_with_annotation(repo.path());
+        Store::open(repo.path())
+            .append(&Event::now(
+                app.annotations()[0].id(),
+                Actor::Agent,
+                EventKind::AgentResolved { reply: None },
+            ))
+            .unwrap();
+        app.reload();
+
+        // The editor opens on the annotation under the cursor, collapsed or not.
+        app.diff_cursor = added_row(&app, "fn a() {}");
+        app.apply(keymap::Action::Annotate);
+        assert!(app.is_editing());
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(110, 30)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        let rendered = terminal.backend().to_string();
+        let title = rendered
+            .lines()
+            .find(|line| line.contains("edit annotation"))
+            .expect("the editor renders inline");
+
+        assert!(
+            title.trim_start_matches('"').starts_with('┌'),
+            "no bracket hangs off the icon above it:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn an_open_annotation_is_never_collapsed() {
+        use super::app::{MarkerShape, ResolvedBlocks};
+
+        let repo = fixture();
+        let mut app = app_with_annotation(repo.path());
+        let anchor = app.annotations()[0].annotation.anchor.clone();
+        let file_index = app.file_index_of(&anchor.file).unwrap();
+
+        assert_eq!(app.resolved_blocks, ResolvedBlocks::Collapsed);
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(110, 30)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        let rendered = terminal.backend().to_string();
+        assert!(
+            rendered.contains("needs docs"),
+            "an open annotation keeps its block:\n{rendered}"
+        );
+        assert!(matches!(
+            app.line_marker(file_index, anchor.side, anchor.start_line.get())
+                .map(|m| m.shape),
+            Some(MarkerShape::Bracket(_))
+        ));
+    }
+
+    #[test]
     fn long_annotation_body_wraps_across_multiple_lines() {
         let repo = fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();

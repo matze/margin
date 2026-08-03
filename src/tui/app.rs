@@ -492,12 +492,60 @@ pub enum SpanPosition {
     End,
 }
 
-/// A gutter marker for one diff line: its status glyph plus its place in the
-/// annotation's range.
+/// How a line's gutter marker is drawn: as part of the bracket the inline block
+/// below closes, or — when that block is collapsed — as a standalone status icon
+/// that leaves no bracket dangling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkerShape {
+    Bracket(SpanPosition),
+    Icon,
+}
+
+impl MarkerShape {
+    /// Combine the shapes of two annotations covering the same line: overlapping
+    /// ranges collapse to a plain glyph, and a drawn block's bracket wins over a
+    /// collapsed one's icon because that bracket still needs closing.
+    fn merge(self, other: MarkerShape) -> MarkerShape {
+        match (self, other) {
+            (MarkerShape::Icon, MarkerShape::Icon) => MarkerShape::Icon,
+            _ => MarkerShape::Bracket(SpanPosition::Single),
+        }
+    }
+}
+
+/// A gutter marker for one diff line: its status glyph plus how it is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LineMarker {
     pub marker: Marker,
-    pub position: SpanPosition,
+    pub shape: MarkerShape,
+}
+
+/// Whether the diff pane draws the inline blocks of resolved and declined
+/// annotations, or collapses them to their gutter icon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolvedBlocks {
+    Collapsed,
+    Expanded,
+}
+
+impl ResolvedBlocks {
+    fn toggled(self) -> ResolvedBlocks {
+        match self {
+            ResolvedBlocks::Collapsed => ResolvedBlocks::Expanded,
+            ResolvedBlocks::Expanded => ResolvedBlocks::Collapsed,
+        }
+    }
+
+    /// True when an annotation with `status` gets an inline block.
+    pub fn draws(self, status: Status) -> bool {
+        self == ResolvedBlocks::Expanded || !is_closed(status)
+    }
+}
+
+/// True for the statuses [`ResolvedBlocks::Collapsed`] hides: an annotation the
+/// agent closed, either by resolving it or by declining it.
+fn is_closed(status: Status) -> bool {
+    matches!(status, Status::Resolved | Status::WontDo)
 }
 
 /// The whole application.
@@ -544,6 +592,8 @@ pub struct App {
     annotations: Vec<ResolvedAnnotation>,
     commit_markers: HashMap<ReviewTarget, Marker>,
     line_markers: HashMap<(usize, Side, u32), LineMarker>,
+    /// Whether closed annotations show their inline block or just their icon.
+    pub resolved_blocks: ResolvedBlocks,
 
     /// Full message of the selected commit, shown beside the commit picker.
     pub current_message: String,
@@ -606,6 +656,7 @@ impl App {
             annotations: Vec::new(),
             commit_markers: HashMap::new(),
             line_markers: HashMap::new(),
+            resolved_blocks: ResolvedBlocks::Collapsed,
             current_message: String::new(),
             message_scroll: 0,
             diff_viewport_height: 0,
@@ -781,6 +832,7 @@ impl App {
             Action::ExpandContext => self.expand_context(Direction::Down),
             Action::CollapseContext => self.expand_context(Direction::Up),
             Action::ToggleSplit => self.toggle_view(),
+            Action::ToggleResolved => self.toggle_resolved_blocks(),
             Action::Confirm => self.confirm(),
             Action::StartSelection => self.start_selection(),
             Action::Annotate => self.begin_annotation(),
@@ -1154,6 +1206,31 @@ impl App {
             DiffView::Unified => DiffView::Split,
             DiffView::Split => DiffView::Unified,
         };
+    }
+
+    /// Draw or collapse the inline blocks of resolved and declined annotations.
+    /// Either way their lines keep a gutter icon, so a collapsed annotation stays
+    /// visible where it sits.
+    fn toggle_resolved_blocks(&mut self) {
+        self.resolved_blocks = self.resolved_blocks.toggled();
+        self.recompute_line_markers();
+
+        let closed = self
+            .annotations
+            .iter()
+            .filter(|resolved| is_closed(resolved.status))
+            .count();
+
+        let noun = match closed {
+            1 => "annotation",
+            _ => "annotations",
+        };
+
+        self.status_message = Some(match (self.resolved_blocks, closed) {
+            (_, 0) => "no resolved annotations".into(),
+            (ResolvedBlocks::Collapsed, _) => format!("{closed} resolved {noun} collapsed"),
+            (ResolvedBlocks::Expanded, _) => format!("{closed} resolved {noun} shown"),
+        });
     }
 
     fn start_selection(&mut self) {
@@ -2066,15 +2143,17 @@ impl App {
                 let (start, end) = (anchor.start_line.get(), anchor.end_line.get());
 
                 for line in start..=end {
-                    let position = span_position(line, start, end);
+                    let shape = match self.resolved_blocks.draws(resolved.status) {
+                        true => MarkerShape::Bracket(span_position(line, start, end)),
+                        false => MarkerShape::Icon,
+                    };
                     markers
                         .entry((file_index, anchor.side, line))
                         .and_modify(|existing| {
                             existing.marker = existing.marker.merge(marker);
-                            // Overlapping ranges collapse to a plain glyph.
-                            existing.position = SpanPosition::Single;
+                            existing.shape = existing.shape.merge(shape);
                         })
-                        .or_insert(LineMarker { marker, position });
+                        .or_insert(LineMarker { marker, shape });
                 }
             }
         }

@@ -38,6 +38,8 @@ pub enum Action {
     CollapseContext,
     /// Switch the diff pane between unified and split layouts.
     ToggleSplit,
+    /// Draw or collapse the inline blocks of resolved annotations.
+    ToggleResolved,
     StartSelection,
     Annotate,
     /// Context action of Enter: keep a picker's preview, or annotate the line.
@@ -140,6 +142,7 @@ fn map_main(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('+') | KeyCode::Char('=') => Some(Action::ExpandContext),
         KeyCode::Char('-') | KeyCode::Char('_') => Some(Action::CollapseContext),
         KeyCode::Char('s') => Some(Action::ToggleSplit),
+        KeyCode::Char('S') => Some(Action::ToggleResolved),
         KeyCode::Char('c') => Some(Action::OpenCommits),
         KeyCode::Char('f') => Some(Action::OpenFiles),
         KeyCode::Char('A') => Some(Action::OpenAnnotations),
@@ -263,6 +266,18 @@ mod tests {
         assert_eq!(
             map(press(KeyCode::Char('s')), KeyContext::Editor),
             Some(Action::EditorChar('s'))
+        );
+    }
+
+    #[test]
+    fn shift_s_shows_resolved_annotations_in_main_but_types_in_editor() {
+        assert_eq!(
+            map(press(KeyCode::Char('S')), KeyContext::Main),
+            Some(Action::ToggleResolved)
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('S')), KeyContext::Editor),
+            Some(Action::EditorChar('S'))
         );
     }
 

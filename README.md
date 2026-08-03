@@ -101,9 +101,16 @@ In the diff:
 | `Ctrl-d` / `Ctrl-u`   | half-page down / up                                       |
 | `+` / `-`             | expand / collapse context                                 |
 | `s`                   | toggle split / unified view                               |
+| `S`                   | show / collapse resolved annotations                      |
 | `v` (or `Space`)      | start / stop a line-range selection                       |
 | `a` (or `Enter`)      | annotate the current line or selection                    |
 | `Esc`                 | drop the selection                                        |
+
+An annotation the agent closed — resolved or declined — keeps only its gutter
+icon (`✓`) on the lines it covers; its block stays out of the diff so the review
+reads as what is left to do. `S` draws every closed annotation's block again (and
+collapses them back). Collapsed or not, the keys below still act on the
+annotation under the cursor, and the overview (`A`) lists it either way.
 
 While hovering an annotation:
 
