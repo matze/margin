@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Typing past the right edge of the annotation editor now wraps the body to the
+  next line instead of clipping the tail, keeping the cursor on the character
+  being typed.
+
 ## [0.14.0]
 
 ### Changed

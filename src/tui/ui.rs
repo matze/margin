@@ -1129,6 +1129,15 @@ impl BlockLayout {
         width.saturating_sub(lead + self.indent + trailer)
     }
 
+    /// Columns available for editor body text: the bracket takes 2 columns, and
+    /// unlike annotation blocks the editor fills the gutter region with body.
+    fn editor_text_width(&self, width: usize) -> usize {
+        let lead: usize = self.lead.iter().map(|s| s.content.chars().count()).sum();
+        let trailer: usize = self.trailer.iter().map(|s| s.content.chars().count()).sum();
+
+        width.saturating_sub(lead + 2 + trailer)
+    }
+
     /// Wrap a block's `content` spans in its lead and trailer, padding the gap to
     /// the next cell boundary with `bg`.
     fn finish(&self, content: Vec<Span<'static>>, width: usize, bg: Color) -> Line<'static> {
@@ -1300,14 +1309,11 @@ fn editor_block(
             .add_modifier(Modifier::BOLD),
     )]];
 
-    let body = editor.text.contents();
-    let body_lines: Vec<&str> = if body.is_empty() {
-        vec![""]
-    } else {
-        body.split('\n').collect()
-    };
-
-    let (cursor_row, cursor_col) = editor.text.cursor_row_col();
+    let (body_lines, (cursor_row, cursor_col)) = wrap_editor_body(
+        editor.text.contents(),
+        layout.editor_text_width(width),
+        editor.text.cursor_row_col(),
+    );
     let cursor_style = Style::default()
         .fg(palette.text_cursor_fg)
         .bg(palette.text_cursor_bg);
@@ -1363,6 +1369,39 @@ fn editor_block(
             layout.finish(content, width, bg)
         })
         .collect()
+}
+
+/// Fold the editor body into visual rows of at most `width` characters,
+/// returning them with the cursor's visual `(row, column)`. Long lines break at
+/// the column edge rather than clipping, keeping every character on screen;
+/// blank logical lines stay blank, so the cursor can sit on an empty row.
+fn wrap_editor_body(
+    body: &str,
+    width: usize,
+    cursor: (usize, usize),
+) -> (Vec<String>, (usize, usize)) {
+    let width = width.max(1);
+    let mut rows = Vec::new();
+    let mut visual = (0, 0);
+    let (cursor_row, cursor_col) = cursor;
+
+    for (row, line) in body.split('\n').enumerate() {
+        let chars: Vec<char> = line.chars().collect();
+        let row_start = rows.len();
+
+        if chars.is_empty() {
+            rows.push(String::new());
+        } else {
+            rows.extend(chars.chunks(width).map(|chunk| chunk.iter().collect()));
+        }
+
+        if row == cursor_row {
+            let chunk = (cursor_col / width).min(rows.len() - 1 - row_start);
+            visual = (row_start + chunk, cursor_col - chunk * width);
+        }
+    }
+
+    (rows, visual)
 }
 
 /// Render one editor line with the cursor highlighted at `column` (counted in
@@ -2608,5 +2647,38 @@ mod tests {
     #[test]
     fn wrap_text_always_returns_a_line() {
         assert_eq!(wrap_text("", 10), vec![""]);
+    }
+
+    #[test]
+    fn wrap_editor_body_folds_long_lines_without_losing_characters() {
+        let (rows, cursor) = wrap_editor_body("the quick brown fox", 8, (0, 12));
+
+        assert_eq!(rows, vec!["the quic", "k brown ", "fox"]);
+        assert_eq!(cursor, (1, 4), "cursor lands on 'o' of the wrapped row");
+    }
+
+    #[test]
+    fn wrap_editor_body_parks_a_line_end_cursor_on_the_folded_tail() {
+        let (rows, cursor) = wrap_editor_body("abcdefgh", 4, (0, 8));
+
+        assert_eq!(rows, vec!["abcd", "efgh"]);
+        assert_eq!(cursor, (1, 4), "trailing position on the last row");
+    }
+
+    #[test]
+    fn wrap_editor_body_tracks_the_cursor_across_logical_lines() {
+        let (rows, cursor) = wrap_editor_body("first\nsecond line", 10, (1, 5));
+
+        assert_eq!(rows, vec!["first", "second lin", "e"]);
+        assert_eq!(cursor, (1, 5));
+    }
+
+    #[test]
+    fn wrap_editor_body_keeps_blank_lines_and_an_empty_body() {
+        assert_eq!(wrap_editor_body("", 10, (0, 0)).0, vec![""]);
+
+        let (rows, cursor) = wrap_editor_body("a\n\nb", 10, (1, 0));
+        assert_eq!(rows, vec!["a", "", "b"]);
+        assert_eq!(cursor, (1, 0));
     }
 }

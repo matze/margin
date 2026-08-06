@@ -1261,6 +1261,45 @@ impl Limiter {
     }
 
     #[test]
+    fn long_editor_body_wraps_while_typing() {
+        let repo = fixture();
+        let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
+        let mut app = App::new(backend, Base::Branch("main".into()), ThemeMode::Dark).unwrap();
+        app.apply(keymap::Action::Down);
+        app.apply(keymap::Action::Down);
+        app.apply(keymap::Action::Annotate);
+
+        // A body wider than the editor's text column (110 − 2-col bracket) so its
+        // tail would fall off the right edge unwrapped while typing.
+        let body = "alpha bravo charlie delta echo foxtrot golf hotel india juliet \
+            kilo lima mike november oscar papa quebec romeo endmarker";
+        for c in body.chars() {
+            app.apply(keymap::Action::EditorChar(c));
+        }
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(110, 30)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+
+        let rendered = terminal.backend().to_string();
+        let first = rendered
+            .lines()
+            .position(|l| l.contains("alpha"))
+            .expect("body's first word renders while typing");
+        let last = rendered
+            .lines()
+            .position(|l| l.contains("endmarker"))
+            .expect("body's last word renders on a wrapped editor line");
+
+        assert!(
+            last > first,
+            "the editor tail wraps onto a later line rather than being truncated:\n{rendered}"
+        );
+    }
+
+    #[test]
     fn editor_paints_the_cursor_under_a_mid_line_character() {
         let repo = fixture();
         let backend = crate::vcs::discover(repo.path(), Some(crate::vcs::Kind::Git)).unwrap();
