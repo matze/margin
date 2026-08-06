@@ -164,6 +164,7 @@ margin status <id> open     [--reason ..] # reopen for re-review
 margin install-skill                      # install the agent skill into ~/.claude/skills/
 margin install-skill --dir <path>         # ... into another skills root
 margin install-skill --print              # ... or to stdout, e.g. `>> AGENTS.md`
+margin schema                             # the JSON Schema of the list --json output
 ```
 
 The skill only documents the CLI above, so any agent can follow it: `--print`
@@ -171,7 +172,16 @@ writes it wherever your agent looks for instructions.
 
 `margin list --json` folds the event log into current per-annotation state
 (status, re-anchored location, snippet), so the agent never touches the raw
-NDJSON. Each annotation also carries its `history` — the replies and reopen
+NDJSON. The output is a versioned envelope — an agent keyed to its exact shape
+can detect a future breaking change in-band rather than guessing. Its shape is
+schema-pinned (see `schema/margin-agent-v1.schema.json`, retrievable with
+`margin schema`):
+
+```json
+{ "format": "margin-review/list", "version": 1, "annotations": [ … ] }
+```
+
+Each annotation also carries its `history` — the replies and reopen
 reasons recorded against it, oldest first — so a later run reads back what was
 already tried and why you rejected it.
 

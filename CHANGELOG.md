@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `margin list --json` now returns a versioned envelope
+  (`{"format":"margin-review/list","version":1,"annotations":[…]}`, one
+  entry per annotation) instead of a bare array. This is a deliberate breaking
+  change to the `--json` shape — the envelope carries its own format version so
+  a reader can detect and refuse an unknown future shape in-band rather than
+  guessing at fields. The `margin-review` skill and README both describe the new
+  shape; the version is `1` and is not tied to the margin binary version.
+
+### Added
+
+- `margin schema` prints the JSON Schema of the `list --json` output, and the
+  canonical, committed copy lives at `schema/margin-agent-v1.schema.json`. The
+  embedded `margin-review` skill is updated to reference it and the `margin
+  install-skill` command drops it as `schema.json` next to `SKILL.md`. A
+  conformance test guarantees `list --json` output always agrees with the
+  schema's envelope and optionality rules.
+
 ### Fixed
 
 - Typing past the right edge of the annotation editor now wraps the body to the

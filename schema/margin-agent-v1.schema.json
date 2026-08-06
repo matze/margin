@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://margin.dev/schema/margin-agent-v1.schema.json",
+  "title": "margin-review/list",
+  "description": "The `margin list --json` projection, version 1. The output is a versioned envelope so a reader can detect a future breaking shape change in-band and refuse to guess at unknown fields. This schema is the canonical, committed definition of that output; `margin schema` prints it and the embedded margin-review skill points at it.",
+  "type": "object",
+  "required": ["format", "version", "annotations"],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "margin-review/list"
+    },
+    "version": {
+      "const": 1
+    },
+    "annotations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/annotation" }
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 timestamp."
+    },
+    "revision_id": {
+      "type": "string",
+      "description": "The change the annotation is anchored to, or `(working copy)` for an uncommitted change (see ReviewTarget::WORKING_COPY)."
+    },
+    "annotation": {
+      "type": "object",
+      "required": [
+        "id",
+        "file",
+        "status",
+        "revision_id",
+        "side",
+        "orphaned",
+        "anchored_text",
+        "addressed_by",
+        "history"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID; pass to `margin status` (a unique prefix is accepted)."
+        },
+        "file": {
+          "type": "string",
+          "description": "Repository-root-relative path of the anchored file."
+        },
+        "status": {
+          "enum": ["open", "resolved", "wont_do", "orphaned"]
+        },
+        "type": {
+          "description": "Annotation taxonomy. Omitted when the annotation is a plain note.",
+          "enum": ["fix", "question", "suggestion", "nit", "praise"]
+        },
+        "body": {
+          "type": "string",
+          "description": "The reviewer's text — the actual request."
+        },
+        "revision_id": { "$ref": "#/$defs/revision_id" },
+        "side": {
+          "enum": ["new", "old"],
+          "description": "`old` anchors a deleted line; `location` then refers to the commit's parent."
+        },
+        "location": {
+          "description": "Current 1-based [start, end] line range. `null` when the anchor is orphaned.",
+          "type": ["array", "null"],
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "orphaned": {
+          "type": "boolean",
+          "description": "True when the anchor no longer resolves, whatever the status."
+        },
+        "revision_state": {
+          "description": "How the annotated change stands in history. Omitted when the backend cannot track change identity (an annotation on git's working copy).",
+          "enum": ["unchanged", "amended", "divergent", "abandoned"]
+        },
+        "current_commit": {
+          "type": "string",
+          "description": "The change's current commit when it differs from the captured one. Present only when revision_state is `amended`."
+        },
+        "anchored_text": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The lines the annotation was attached to (use to relocate if orphaned)."
+        },
+        "addressed_by": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/revision_id" },
+          "description": "Revisions already recorded as addressing the annotation."
+        },
+        "history": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/history-entry" },
+          "description": "Outcomes recorded so far, oldest first."
+        }
+      }
+    },
+    "history-entry": {
+      "type": "object",
+      "required": ["at", "actor", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "at": { "$ref": "#/$defs/timestamp" },
+        "actor": {
+          "enum": ["reviewer", "agent"]
+        },
+        "action": {
+          "enum": ["handed_off", "resolved", "wont_do", "reopened", "addressed_by"]
+        },
+        "text": {
+          "type": "string",
+          "description": "The reply or reopen reason recorded with the transition."
+        },
+        "revision": {
+          "type": "string",
+          "description": "The change linked as addressing the annotation. Present only on an `addressed_by` action."
+        }
+      }
+    }
+  }
+}

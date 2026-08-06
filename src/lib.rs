@@ -8,6 +8,7 @@ pub mod anchor;
 pub mod export;
 pub mod model;
 pub mod review;
+pub mod schema;
 pub mod skill;
 pub mod store;
 pub mod tui;

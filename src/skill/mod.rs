@@ -15,6 +15,11 @@ pub const NAME: &str = "margin-review";
 /// margin does not know the convention for, such as an `AGENTS.md`.
 pub const DOCUMENT: &str = include_str!("../../.claude/skills/margin-review/SKILL.md");
 
+/// The JSON Schema of the `list --json` output, embedded from the repository so
+/// the copy `install` drops next to `SKILL.md` never drifts from the committed
+/// artifact. Also retrievable via `margin schema`.
+pub const SCHEMA: &str = include_str!("../../schema/margin-agent-v1.schema.json");
+
 /// Whether [`install`] created a new skill or overwrote an existing one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -31,8 +36,11 @@ impl Outcome {
     }
 }
 
-/// Write the embedded skill into `skills_root/margin-review/SKILL.md`, creating
-/// the directory as needed and overwriting any prior copy.
+/// Write the embedded skill and its JSON Schema into
+/// `skills_root/margin-review/`, creating the directory as needed and
+/// overwriting any prior copy. The schema lands beside `SKILL.md` so an
+/// installed skill's reader has the `list --json` contract locally without
+/// running `margin schema`.
 pub fn install(skills_root: &Path) -> std::io::Result<Outcome> {
     let dir = skills_root.join(NAME);
     let file = dir.join("SKILL.md");
@@ -40,6 +48,7 @@ pub fn install(skills_root: &Path) -> std::io::Result<Outcome> {
     let existed = file.exists();
     std::fs::create_dir_all(&dir)?;
     std::fs::write(&file, DOCUMENT)?;
+    std::fs::write(dir.join("schema.json"), SCHEMA)?;
 
     Ok(if existed {
         Outcome::Updated(file)
@@ -59,6 +68,10 @@ mod tests {
         let created = install(root.path()).unwrap();
         assert!(matches!(created, Outcome::Created(_)));
         assert_eq!(std::fs::read_to_string(created.path()).unwrap(), DOCUMENT);
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(NAME).join("schema.json")).unwrap(),
+            SCHEMA
+        );
 
         let updated = install(root.path()).unwrap();
         assert!(matches!(updated, Outcome::Updated(_)));

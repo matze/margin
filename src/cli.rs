@@ -93,6 +93,9 @@ pub enum Command {
         #[arg(long, conflicts_with = "print")]
         dir: Option<PathBuf>,
     },
+
+    /// Print the JSON Schema for the `list --json` output.
+    Schema,
 }
 
 /// The state an annotation can be moved to via `margin status`.

@@ -24,6 +24,9 @@ Read `## Gotchas` before the first edit.
    Run from inside the target repository (any subdirectory works; `margin`
    discovers the repo root). Drop `--open` to also see resolved/orphaned items.
 
+   `margin schema` prints the JSON Schema of this output if you want to pin to
+   its exact shape.
+
    If the reviewer is still annotating, add `--watch`: it blocks until they
    hand the review off, then prints. Prefer it over re-running `list` in a
    loop — a listing read mid-review may be missing annotations.
@@ -94,9 +97,13 @@ Read `## Gotchas` before the first edit.
 
 ## JSON fields (`margin list --json`)
 
-Flags, status values and field names below track `margin` 0.13.0. They are the
-CLI's surface, so they move with it — trust `margin --help` and `margin list
---help` over this section if the two disagree.
+The `list --json` output is a versioned envelope: a top-level
+`{"format":"margin-review/list","version":1,"annotations":[…]}`. `version` is
+the shape's format version — not the margin binary version — and a
+machine-validated copy of this shape lives at
+`schema/margin-agent-v1.schema.json`, retrievable via `margin schema`. Read the
+wrapper and refuse to act on an unknown `version`. Field names below move with
+the CLI, so trust `margin --help` and `margin list --help` if the two disagree.
 
 | field           | meaning |
 |-----------------|---------|
@@ -115,22 +122,29 @@ CLI's surface, so they move with it — trust `margin --help` and `margin list
 
 ## Example
 
-One open annotation in the listing:
+One open annotation in the listing (the output is wrapped in a versioned
+envelope — see the `## JSON fields` section for how to read `format`/`version`):
 
 ```json
 {
-  "id": "9f2c1a4e-7b30-4d5c-8e11-2a6f0c9d3b57",
-  "file": "src/tui/app.rs",
-  "status": "open",
-  "type": "fix",
-  "body": "Unwraps on an empty diff — this panics for a commit that touches no files.",
-  "revision_id": "26a750dc",
-  "side": "new",
-  "location": [412, 414],
-  "orphaned": false,
-  "anchored_text": "let first = files.first().unwrap();",
-  "addressed_by": [],
-  "history": [{ "action": "handed_off", "actor": "reviewer", "text": null }]
+  "format": "margin-review/list",
+  "version": 1,
+  "annotations": [
+    {
+      "id": "9f2c1a4e-7b30-4d5c-8e11-2a6f0c9d3b57",
+      "file": "src/tui/app.rs",
+      "status": "open",
+      "type": "fix",
+      "body": "Unwraps on an empty diff — this panics for a commit that touches no files.",
+      "revision_id": "26a750dc",
+      "side": "new",
+      "location": [412, 414],
+      "orphaned": false,
+      "anchored_text": "let first = files.first().unwrap();",
+      "addressed_by": [],
+      "history": [{ "action": "handed_off", "actor": "reviewer", "text": null }]
+    }
+  ]
 }
 ```
 
@@ -154,6 +168,9 @@ margin status 9f2c1a4e resolved --reply "Empty diff now short-circuits to an emp
   record of what they liked.
 - **An id prefix must be unique.** `status` refuses an ambiguous one — lengthen
   the prefix rather than picking a candidate yourself.
+- **`margin list --json` is version-carried.** Parse the wrapper
+  (`format`/`version`/`annotations`) and refuse to proceed on an unknown
+  `version` rather than guessing at fields you've never seen.
 
 ## Rules
 

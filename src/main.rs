@@ -32,6 +32,7 @@ fn main() -> Result<()> {
         ),
         Some(Command::InstallSkill { print: true, .. }) => run_print_skill(),
         Some(Command::InstallSkill { dir, .. }) => run_install_skill(dir.clone()),
+        Some(Command::Schema) => run_schema(),
         None => run_tui(&cli),
     }
 }
@@ -125,6 +126,14 @@ fn list_line(resolved: &ResolvedAnnotation) -> String {
 /// redirected into whatever file a non-Claude agent reads.
 fn run_print_skill() -> Result<()> {
     print!("{}", margin::skill::DOCUMENT);
+
+    Ok(())
+}
+
+/// `margin schema`: print the JSON Schema of the `list --json` output so a
+/// reader can pin to its exact shape without reaching into the repo.
+fn run_schema() -> Result<()> {
+    print!("{}", margin::schema::SCHEMA);
 
     Ok(())
 }

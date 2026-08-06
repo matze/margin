@@ -18,9 +18,28 @@ pub enum ExportError {
 }
 
 /// Render the stable, machine-readable JSON view: one object per annotation.
+///
+/// The output is a versioned envelope — the annotations under `annotations`
+/// carry the shape documented in `schema/margin-agent-v1.schema.json` (also
+/// retrievable via `margin schema`), and `version` lets a reader refuse
+/// parsing an unknown future shape instead of guessing.
 pub fn render_json(annotations: &[ResolvedAnnotation]) -> Result<String, ExportError> {
     let view: Vec<AnnotationView> = annotations.iter().map(AnnotationView::from).collect();
-    Ok(serde_json::to_string_pretty(&view)?)
+    Ok(serde_json::to_string_pretty(&ListEnvelope {
+        format: "margin-review/list",
+        version: crate::schema::VERSION,
+        annotations: view,
+    })?)
+}
+
+/// The version carrier around the `list --json` projection. The shape is
+/// versioned so a reader can detect a future breaking change in-band rather
+/// than guessing at fields.
+#[derive(Debug, Serialize)]
+struct ListEnvelope<'a> {
+    format: &'a str,
+    version: u32,
+    annotations: Vec<AnnotationView<'a>>,
 }
 
 /// The serialized shape of one annotation in the JSON view.
@@ -241,7 +260,7 @@ mod tests {
     fn history_of(resolved: ResolvedAnnotation) -> serde_json::Value {
         let json = render_json(&[resolved]).unwrap();
         let mut view: serde_json::Value = serde_json::from_str(&json).unwrap();
-        view[0]["history"].take()
+        view["annotations"][0]["history"].take()
     }
 
     #[test]
@@ -363,5 +382,103 @@ mod tests {
 
         assert!(!json.contains("revision_state"), "{json}");
         assert!(!json.contains("current_commit"), "{json}");
+    }
+
+    /// The envelope and the field optionality the schema documents: this defends
+    /// the contract without a runtime JSON-Schema validator, so a drift in the
+    /// shape that `schema/margin-agent-v1.schema.json` pins fails here.
+    #[test]
+    fn json_view_is_a_versioned_envelope_matching_the_schema() {
+        let json = render_json(&[resolved(RevisionState::Amended {
+            current: CommitId("commit9".into()),
+        })])
+        .unwrap();
+        let view: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // Envelope carrier.
+        assert_eq!(view["format"], "margin-review/list");
+        assert_eq!(view["version"], crate::schema::VERSION);
+        assert_eq!(view["version"], 1);
+        assert_eq!(view["annotations"].as_array().unwrap().len(), 1);
+
+        let annotation = &view["annotations"][0];
+        // Required keys per the schema.
+        for key in [
+            "id",
+            "file",
+            "status",
+            "revision_id",
+            "side",
+            "orphaned",
+            "anchored_text",
+            "addressed_by",
+            "history",
+        ] {
+            assert!(
+                annotation.get(key).is_some(),
+                "missing required {key}: {annotation}"
+            );
+        }
+        // `amended` serializes both revision fields.
+        assert_eq!(annotation["revision_state"], "amended");
+        assert_eq!(annotation["current_commit"], "commit9");
+        assert!(annotation.get("type").is_none(), "{annotation}");
+    }
+
+    #[test]
+    fn unsupported_drops_revision_state_from_the_schema_shape() {
+        let json = render_json(&[resolved(RevisionState::Unsupported)]).unwrap();
+        let view: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        let annotation = &view["annotations"][0];
+        assert!(annotation.get("revision_state").is_none(), "{annotation}");
+        assert!(annotation.get("current_commit").is_none(), "{annotation}");
+    }
+
+    /// The schema specifies `location` as `array | null` because an orphaned
+    /// anchor serializes `"location": null` (not an absent key) — matching the
+    /// SKILL's `location: null` guidance. This locks that the output and schema
+    /// agree.
+    #[test]
+    fn orphaned_serializes_location_as_null() {
+        let orphaned = ResolvedAnnotation {
+            location: Resolution::Orphaned,
+            ..resolved(RevisionState::Unsupported)
+        };
+        let view: serde_json::Value =
+            serde_json::from_str(&render_json(&[orphaned]).unwrap()).unwrap();
+
+        let json = &view["annotations"][0];
+        assert_eq!(json["orphaned"], true);
+        assert!(json["location"].is_null(), "{json}");
+    }
+
+    #[test]
+    fn history_revision_is_only_under_addressed_by() {
+        let json = render_json(&[with_timeline(vec![
+            event(
+                Actor::Agent,
+                20,
+                EventKind::AgentAddressedBy {
+                    revision_id: RevisionId("abc".into()),
+                    reply: Some("split across two commits".into()),
+                },
+            ),
+            event(
+                Actor::Reviewer,
+                30,
+                EventKind::ReviewerReopened {
+                    reason: Some("still 0".into()),
+                },
+            ),
+        ])])
+        .unwrap();
+        let view: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        let history = &view["annotations"][0]["history"];
+        assert_eq!(history[0]["action"], "addressed_by");
+        assert_eq!(history[0]["revision"], "abc");
+        assert_eq!(history[1]["action"], "reopened");
+        assert!(history[1].get("revision").is_none(), "{history}");
     }
 }
