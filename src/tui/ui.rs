@@ -857,6 +857,7 @@ fn render_screen_row(
             let lines = render_row(
                 app,
                 highlighter,
+                *index,
                 &app.rows[*index],
                 width,
                 pane_bg,
@@ -1434,9 +1435,11 @@ fn bracket_span(bracket: char, color: Color, bg: Color) -> Span<'static> {
     Span::styled(format!("{bracket} "), Style::default().fg(color).bg(bg))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_row(
     app: &App,
     highlighter: &Highlighter,
+    index: usize,
     row: &Row,
     width: usize,
     pane_bg: Color,
@@ -1497,6 +1500,7 @@ fn render_row(
             app,
             highlighter,
             *file_index,
+            index,
             extension,
             line,
             emphasis,
@@ -1570,6 +1574,7 @@ fn render_diff_line(
     app: &App,
     highlighter: &Highlighter,
     file_index: usize,
+    row_index: usize,
     extension: &str,
     line: &DiffLine,
     emphasis: &[Range<usize>],
@@ -1611,11 +1616,14 @@ fn render_diff_line(
         ),
     ];
 
+    let match_ranges = app.search_match_ranges(row_index);
+
     let content = content_spans(
         highlighter,
         extension,
         line,
         emphasis,
+        &match_ranges,
         bg,
         palette,
         focus,
@@ -1640,6 +1648,7 @@ fn content_spans(
     extension: &str,
     line: &DiffLine,
     emphasis: &[Range<usize>],
+    matches: &[Range<usize>],
     bg: Color,
     palette: Palette,
     focus: RowFocus,
@@ -1664,7 +1673,15 @@ fn content_spans(
         Highlighting::Plain => vec![(line.content.clone(), palette.default_fg)],
     };
 
-    emphasis::styled_content(segments, emphasis, bg, emph_bg, modifier)
+    emphasis::styled_content(
+        segments,
+        emphasis,
+        bg,
+        emph_bg,
+        modifier,
+        matches,
+        palette.search_match_bg,
+    )
 }
 
 /// Render one side of a split diff line into exactly `width` columns: the
@@ -1737,11 +1754,14 @@ fn render_cell(
         ),
     ];
 
+    let match_ranges = app.search_match_ranges(row_index);
+
     let content = content_spans(
         highlighter,
         extension,
         line,
         emphasis,
+        &match_ranges,
         bg,
         palette,
         focus,
@@ -1969,6 +1989,7 @@ fn help_line(app: &App) -> Line<'static> {
             ],
         },
         Overlay::Help => &[("any key", "close")],
+        Overlay::Search(_) => return search_bar(app),
         Overlay::None => return diff_help_line(app),
     };
 
@@ -1987,6 +2008,7 @@ fn diff_help_line(app: &App) -> Line<'static> {
     let mut hints: Vec<(&str, &str)> = vec![
         ("j/k ↑/↓", "move"),
         ("n/p", "change"),
+        ("/", "search"),
         select,
         ("a", "annotate"),
     ];
@@ -2014,6 +2036,50 @@ fn diff_help_line(app: &App) -> Line<'static> {
     ]);
 
     Line::from(hint_spans(app, &hints, app.selecting().then_some("v")))
+}
+
+/// The `/` search prompt: the query with its text cursor, the match count, and
+/// the search's own keys. The diff stays live behind it, so no panel is drawn.
+fn search_bar(app: &App) -> Line<'static> {
+    let Overlay::Search(search) = &app.overlay else {
+        return Line::from("");
+    };
+
+    let palette = app.palette;
+    let key_style = Style::default()
+        .fg(palette.help_key)
+        .add_modifier(Modifier::BOLD);
+    let text_style = Style::default().fg(palette.default_fg);
+    let cursor_style = Style::default()
+        .fg(palette.text_cursor_fg)
+        .bg(palette.text_cursor_bg);
+    let dim = Style::default().fg(palette.gutter_fg);
+
+    let mut spans = vec![Span::styled(" /", key_style)];
+    spans.extend(cursor_line(
+        search.query.contents(),
+        search.query.cursor_row_col().1,
+        text_style,
+        cursor_style,
+    ));
+
+    spans.push(Span::styled(" ", dim));
+    spans.push(match search.matches.len() {
+        0 => Span::styled("no matches", dim),
+        len => Span::styled(format!("{}/{}", search.match_index + 1, len), key_style),
+    });
+
+    for (key, label) in [
+        ("ctrl-n/p", "next/prev"),
+        ("enter", "keep"),
+        ("esc", "cancel"),
+    ] {
+        spans.push(Span::styled(" · ", dim));
+        spans.push(Span::styled(key, key_style));
+        spans.push(Span::styled(format!(" {label}"), dim));
+    }
+
+    Line::from(spans)
 }
 
 /// Render `(key, label)` hints into a help line: each key bold in the accent
@@ -2070,6 +2136,15 @@ const KEY_REFERENCE: &[(&str, &[(&str, &str)])] = &[
             ("enter", "keep the preview"),
             ("c / f / A", "close, keeping the preview"),
             ("esc", "dismiss, restoring position"),
+        ],
+    ),
+    (
+        "search",
+        &[
+            ("/", "search the diff text"),
+            ("ctrl-n / ctrl-p", "next / previous match"),
+            ("enter", "keep the match"),
+            ("esc", "cancel, restoring position"),
         ],
     ),
     (

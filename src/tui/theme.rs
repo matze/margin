@@ -225,6 +225,9 @@ pub struct Palette {
     /// Background for the changed substring within a removed line (delta's
     /// `minus-emph-style`), layered over [`remove_bg`](Self::remove_bg).
     pub remove_emph_bg: Color,
+    /// Background for the active search match, layered over the diff and
+    /// emphasis backgrounds so the matched substring reads as the hit.
+    pub search_match_bg: Color,
     /// Background for the visual selection.
     pub selection_bg: Color,
     /// Background highlight for the focused row.
@@ -288,6 +291,7 @@ const ANSI_FOREGROUNDS: Palette = Palette {
     remove_bg: Color::Reset,
     add_emph_bg: Color::Reset,
     remove_emph_bg: Color::Reset,
+    search_match_bg: Color::Reset,
     selection_bg: Color::Reset,
     cursor_bg: Color::Reset,
     text_cursor_bg: Color::Reset,
@@ -307,6 +311,7 @@ impl Palette {
                 remove_bg: Color::Rgb(58, 24, 28),
                 add_emph_bg: Color::Rgb(32, 92, 54),
                 remove_emph_bg: Color::Rgb(110, 40, 46),
+                search_match_bg: Color::Rgb(38, 74, 120),
                 selection_bg: Color::Rgb(46, 52, 64),
                 cursor_bg: Color::Rgb(38, 42, 52),
                 text_cursor_bg: Color::Rgb(136, 192, 208),
@@ -322,6 +327,7 @@ impl Palette {
                 remove_bg: Color::Rgb(250, 220, 222),
                 add_emph_bg: Color::Rgb(150, 215, 165),
                 remove_emph_bg: Color::Rgb(240, 165, 170),
+                search_match_bg: Color::Rgb(170, 205, 240),
                 selection_bg: Color::Rgb(216, 224, 240),
                 cursor_bg: Color::Rgb(226, 232, 242),
                 text_cursor_bg: Color::Rgb(60, 110, 200),

@@ -11,6 +11,8 @@ pub enum KeyContext {
     /// The diff and everything navigable over it: keys drive navigation and
     /// commands.
     Main,
+    /// The `/` search bar: most keys feed its query buffer.
+    Search,
     /// The annotation editor: most keys feed its text buffer.
     Editor,
     /// The key reference: it holds the screen only until the next key.
@@ -51,6 +53,8 @@ pub enum Action {
     Timeline,
     /// Show the key reference; any key then dismisses it via [`Action::Cancel`].
     ShowHelp,
+    /// Open the `/` text search over the diff.
+    Search,
     Reopen,
     /// Re-read revisions, diff, and the annotation log from disk.
     Reload,
@@ -75,6 +79,19 @@ pub enum Action {
     EditorOpenExternal,
     EditorCycleType,
     EditorSave,
+    SearchChar(char),
+    SearchBackspace,
+    SearchDeleteForward,
+    SearchDeleteWordBack,
+    SearchLeft,
+    SearchRight,
+    SearchWordLeft,
+    SearchWordRight,
+    SearchLineStart,
+    SearchLineEnd,
+    /// Step to the next/previous match while searching.
+    SearchNext,
+    SearchPrev,
     SpawnAgentForAnnotation,
     SpawnAgentForOpen,
     ToggleAgentLog,
@@ -96,6 +113,7 @@ pub fn map(key: KeyEvent, context: KeyContext) -> Option<Action> {
         // the reviewer back in the diff without also acting there.
         KeyContext::Help => Some(Action::Cancel),
         KeyContext::Editor => map_editor(key, ctrl),
+        KeyContext::Search => map_search(key, ctrl),
         KeyContext::Main if ctrl => match key.code {
             KeyCode::Char('u') => Some(Action::HalfPageUp),
             KeyCode::Char('d') => Some(Action::HalfPageDown),
@@ -128,11 +146,32 @@ fn map_editor(key: KeyEvent, ctrl: bool) -> Option<Action> {
     }
 }
 
+fn map_search(key: KeyEvent, ctrl: bool) -> Option<Action> {
+    match key.code {
+        KeyCode::Esc => Some(Action::Cancel),
+        KeyCode::Enter => Some(Action::Confirm),
+        KeyCode::Backspace => Some(Action::SearchBackspace),
+        KeyCode::Delete => Some(Action::SearchDeleteForward),
+        KeyCode::Left if ctrl => Some(Action::SearchWordLeft),
+        KeyCode::Right if ctrl => Some(Action::SearchWordRight),
+        KeyCode::Left => Some(Action::SearchLeft),
+        KeyCode::Right => Some(Action::SearchRight),
+        KeyCode::Home => Some(Action::SearchLineStart),
+        KeyCode::End => Some(Action::SearchLineEnd),
+        KeyCode::Char('w') if ctrl => Some(Action::SearchDeleteWordBack),
+        KeyCode::Char('n') if ctrl => Some(Action::SearchNext),
+        KeyCode::Char('p') if ctrl => Some(Action::SearchPrev),
+        KeyCode::Char(c) if !ctrl => Some(Action::SearchChar(c)),
+        _ => None,
+    }
+}
+
 fn map_main(key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Char('q') => Some(Action::Quit),
         KeyCode::Char('j') | KeyCode::Down => Some(Action::Down),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::Up),
+        KeyCode::Char('/') => Some(Action::Search),
         KeyCode::Char('n') => Some(Action::NextChange),
         KeyCode::Char('p') => Some(Action::PrevChange),
         KeyCode::Char('N') => Some(Action::NextAnnotation),
@@ -382,9 +421,70 @@ mod tests {
     fn ctrl_c_quits_from_any_mode() {
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
 
-        for context in [KeyContext::Main, KeyContext::Editor, KeyContext::Help] {
+        for context in [
+            KeyContext::Main,
+            KeyContext::Editor,
+            KeyContext::Help,
+            KeyContext::Search,
+        ] {
             assert_eq!(map(ctrl_c, context), Some(Action::ForceQuit));
         }
+    }
+
+    #[test]
+    fn slash_opens_search_but_types_in_the_editor() {
+        assert_eq!(
+            map(press(KeyCode::Char('/')), KeyContext::Main),
+            Some(Action::Search)
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('/')), KeyContext::Editor),
+            Some(Action::EditorChar('/'))
+        );
+    }
+
+    #[test]
+    fn search_captures_text_and_steps_matches() {
+        assert_eq!(
+            map(press(KeyCode::Char('x')), KeyContext::Search),
+            Some(Action::SearchChar('x'))
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('n')), KeyContext::Search),
+            Some(Action::SearchChar('n'))
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('N')), KeyContext::Search),
+            Some(Action::SearchChar('N'))
+        );
+        let ctrl_n = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL);
+        assert_eq!(map(ctrl_n, KeyContext::Search), Some(Action::SearchNext));
+        let ctrl_p = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL);
+        assert_eq!(map(ctrl_p, KeyContext::Search), Some(Action::SearchPrev));
+        assert_eq!(
+            map(press(KeyCode::Enter), KeyContext::Search),
+            Some(Action::Confirm)
+        );
+        assert_eq!(
+            map(press(KeyCode::Esc), KeyContext::Search),
+            Some(Action::Cancel)
+        );
+        assert_eq!(
+            map(press(KeyCode::Backspace), KeyContext::Search),
+            Some(Action::SearchBackspace)
+        );
+    }
+
+    #[test]
+    fn search_next_and_prev_do_not_leak_into_main() {
+        assert_eq!(
+            map(press(KeyCode::Char('n')), KeyContext::Main),
+            Some(Action::NextChange)
+        );
+        assert_eq!(
+            map(press(KeyCode::Char('N')), KeyContext::Main),
+            Some(Action::NextAnnotation)
+        );
     }
 
     #[test]

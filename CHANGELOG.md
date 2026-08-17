@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `/` opens an incremental text search over the diff: typing jumps the cursor
+  to the first match after the search start (wrapping to the top) and
+  highlights the matched substring, `Ctrl-n` / `Ctrl-p` step to the next /
+  previous match, `Enter` keeps the match, and `Esc` cancels and restores the
+  cursor. Matching is case-insensitive and covers line content and file
+  headers.
+
 ## [0.15.0]
 
 ### Changed

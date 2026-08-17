@@ -2139,6 +2139,97 @@ impl Limiter {
     }
 
     #[test]
+    fn search_jumps_to_matches_and_steps_between_them() {
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        let fn_a = added_row(&app, "fn a");
+        let fn_b = added_row(&app, "fn b");
+        app.diff_cursor = fn_a;
+        app.apply(keymap::Action::Search);
+        assert!(
+            matches!(app.overlay, super::app::Overlay::Search(_)),
+            "slash opens the search bar"
+        );
+
+        for ch in "fn".chars() {
+            app.apply(keymap::Action::SearchChar(ch));
+        }
+        assert_eq!(
+            app.diff_cursor, fn_a,
+            "the first match after the start wins"
+        );
+
+        app.apply(keymap::Action::SearchNext);
+        assert_eq!(app.diff_cursor, fn_b, "n steps to the next match");
+
+        app.apply(keymap::Action::SearchPrev);
+        assert_eq!(app.diff_cursor, fn_a, "N steps back");
+
+        app.apply(keymap::Action::Confirm);
+        assert!(
+            matches!(app.overlay, super::app::Overlay::None),
+            "enter closes the search"
+        );
+        assert_eq!(app.diff_cursor, fn_a, "and keeps the current match");
+    }
+
+    #[test]
+    fn search_cancel_restores_the_starting_position() {
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        let start = added_row(&app, "fn a");
+        app.diff_cursor = start;
+        app.apply(keymap::Action::Search);
+
+        for ch in "beta".chars() {
+            app.apply(keymap::Action::SearchChar(ch));
+        }
+
+        let landed = app.rows.get(app.diff_cursor).map(|row| match row {
+            super::app::Row::File { label, .. } => label.clone(),
+            super::app::Row::Line { line, .. } => line.content.clone(),
+            super::app::Row::Hunk { .. } => String::new(),
+        });
+        assert!(
+            landed.as_ref().is_some_and(|text| text.contains("beta")),
+            "typing jumps the cursor onto a matching row: {landed:?}"
+        );
+
+        app.apply(keymap::Action::Cancel);
+        assert_eq!(
+            app.diff_cursor, start,
+            "esc puts the cursor back where the search began"
+        );
+        assert!(matches!(app.overlay, super::app::Overlay::None));
+    }
+
+    #[test]
+    fn search_bar_draws_the_query_and_match_count() {
+        let repo = multi_file_fixture();
+        let mut app = multi_file_app(repo.path());
+
+        app.apply(keymap::Action::Search);
+        for ch in "fn".chars() {
+            app.apply(keymap::Action::SearchChar(ch));
+        }
+
+        let highlighter = Highlighter::new(ThemeMode::Dark, app.palette.default_fg);
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+        terminal
+            .draw(|frame| ui::render(frame, &mut app, &highlighter))
+            .unwrap();
+        let rendered = terminal.backend().to_string();
+
+        assert!(rendered.contains("/fn"), "the query is drawn:\n{rendered}");
+        assert!(
+            rendered.contains("1/2"),
+            "the match counter is drawn:\n{rendered}"
+        );
+    }
+
+    #[test]
     fn q_backs_out_of_an_overlay_before_it_leaves_the_app() {
         let repo = multi_file_fixture();
         let mut app = multi_file_app(repo.path());

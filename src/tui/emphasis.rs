@@ -123,16 +123,19 @@ fn emphasized_ranges(values: &[(bool, &str)], content_len: usize) -> Vec<Range<u
 }
 
 /// Render a line's content into styled spans, splitting each `(text, fg)`
-/// segment at `emphasis` boundaries so the changed byte ranges paint on
-/// `emph_bg` and the rest on `base_bg`. `emphasis` must be sorted,
-/// non-overlapping byte ranges into the concatenated segment text; an empty
-/// slice yields one span per segment (no split).
+/// segment at `emphasis` and `matches` boundaries so the changed byte ranges
+/// paint on `emph_bg`, the search matches on `match_bg`, and the rest on
+/// `base_bg`. Both range slices must be sorted, non-overlapping byte ranges
+/// into the concatenated segment text; empty slices yield one span per segment.
+/// A search match wins where the two overlap.
 pub fn styled_content(
     segments: impl IntoIterator<Item = (String, Color)>,
     emphasis: &[Range<usize>],
     base_bg: Color,
     emph_bg: Color,
     modifier: Modifier,
+    matches: &[Range<usize>],
+    match_bg: Color,
 ) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     let mut offset = 0;
@@ -145,18 +148,27 @@ pub fn styled_content(
         let mut pos = start;
 
         while pos < end {
-            let (piece_end, bg) = match emphasis.iter().find(|range| range.contains(&pos)) {
-                Some(range) => (range.end.min(end), emph_bg),
-                None => {
-                    let next = emphasis
-                        .iter()
-                        .map(|range| range.start)
-                        .find(|&start| start > pos)
-                        .unwrap_or(end)
-                        .min(end);
+            let piece_end = emphasis
+                .iter()
+                .chain(matches.iter())
+                .map(|range| {
+                    if range.contains(&pos) {
+                        range.end
+                    } else {
+                        range.start
+                    }
+                })
+                .filter(|&boundary| boundary > pos)
+                .min()
+                .unwrap_or(end)
+                .min(end);
 
-                    (next, base_bg)
-                }
+            let bg = if matches.iter().any(|range| range.contains(&pos)) {
+                match_bg
+            } else if emphasis.iter().any(|range| range.contains(&pos)) {
+                emph_bg
+            } else {
+                base_bg
             };
 
             spans.push(Span::styled(
@@ -270,6 +282,8 @@ mod tests {
             Color::Reset,
             Color::Red,
             Modifier::empty(),
+            &[],
+            Color::Blue,
         );
 
         let texts: Vec<&str> = spans.iter().map(|span| span.content.as_ref()).collect();
@@ -290,9 +304,32 @@ mod tests {
             Color::Reset,
             Color::Red,
             Modifier::empty(),
+            &[],
+            Color::Blue,
         );
 
         assert_eq!(spans.len(), 2);
         assert!(spans.iter().all(|span| span.style.bg == Some(Color::Reset)));
+    }
+
+    #[test]
+    fn styled_content_paints_matches_over_emphasis() {
+        // Emphasize "bcd", match "cd"; the match wins where they overlap.
+        let spans = styled_content(
+            [("abcdef".to_string(), Color::White)],
+            std::slice::from_ref(&(1..4)),
+            Color::Reset,
+            Color::Red,
+            Modifier::empty(),
+            std::slice::from_ref(&(2..4)),
+            Color::Blue,
+        );
+
+        let texts: Vec<&str> = spans.iter().map(|span| span.content.as_ref()).collect();
+        assert_eq!(texts, ["a", "b", "cd", "ef"]);
+        assert_eq!(spans[0].style.bg, Some(Color::Reset));
+        assert_eq!(spans[1].style.bg, Some(Color::Red));
+        assert_eq!(spans[2].style.bg, Some(Color::Blue));
+        assert_eq!(spans[3].style.bg, Some(Color::Reset));
     }
 }

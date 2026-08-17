@@ -83,6 +83,7 @@ pub enum Overlay {
     None,
     Editor(Editor),
     Timeline(Timeline),
+    Search(Search),
     Picker(Picker),
     /// The key reference, so the help bar can stay short.
     Help,
@@ -385,6 +386,19 @@ pub struct Timeline {
     pub scroll: usize,
 }
 
+/// The `/` text search over the diff.
+pub struct Search {
+    /// The query, edited as a single-line text buffer.
+    pub query: TextField,
+    /// Where the diff cursor was when the search opened, so `Esc` can put it
+    /// back.
+    restore_row: usize,
+    /// Diff row indices containing the query, in row order.
+    pub matches: Vec<usize>,
+    /// The current match's index into [`matches`](Self::matches).
+    pub match_index: usize,
+}
+
 /// Where a pending annotation will be anchored.
 #[derive(Clone)]
 pub struct Target {
@@ -546,6 +560,82 @@ impl ResolvedBlocks {
 /// agent closed, either by resolving it or by declining it.
 fn is_closed(status: Status) -> bool {
     matches!(status, Status::Resolved | Status::WontDo)
+}
+
+/// A string already folded to lowercase, so case-insensitive search helpers
+/// can name the invariant in the type instead of a "(already lowercased)" note
+/// on a bare `&str`.
+struct Lowercased(String);
+
+impl Lowercased {
+    fn new(text: &str) -> Self {
+        Self(text.to_lowercase())
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// Whether a diff row's text contains `needle`, case-insensitively. Hunk
+/// headers are generated and never searched.
+fn row_matches(row: &Row, needle: &Lowercased) -> bool {
+    let text = match row {
+        Row::Line { line, .. } => &line.content,
+        Row::File { label, .. } => label,
+        Row::Hunk { .. } => return false,
+    };
+
+    text.to_lowercase().contains(needle.as_str())
+}
+
+/// Case-insensitive byte ranges of `needle` within `text`, on original char
+/// boundaries, in order and non-overlapping: a match advances past itself, so
+/// `nn` finds one match in `nnn`. Mirrors [`row_matches`] at char granularity,
+/// but returns where the query landed so the renderer can paint it.
+fn match_ranges(text: &str, needle: &Lowercased) -> Vec<Range<usize>> {
+    let needle = needle.as_str();
+
+    if needle.is_empty() {
+        return Vec::new();
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    let needle: Vec<char> = needle.chars().collect();
+
+    if needle.len() > chars.len() {
+        return Vec::new();
+    }
+
+    let mut byte_at = Vec::with_capacity(chars.len() + 1);
+    let mut offset = 0;
+    for ch in &chars {
+        byte_at.push(offset);
+        offset += ch.len_utf8();
+    }
+    byte_at.push(offset);
+
+    let mut ranges = Vec::new();
+    let mut index = 0;
+    while index + needle.len() <= chars.len() {
+        let matches = needle
+            .iter()
+            .zip(&chars[index..index + needle.len()])
+            .all(|(query, hay)| query.to_lowercase().eq(hay.to_lowercase()));
+
+        if matches {
+            ranges.push(byte_at[index]..byte_at[index + needle.len()]);
+            index += needle.len();
+        } else {
+            index += 1;
+        }
+    }
+
+    ranges
 }
 
 /// The whole application.
@@ -808,6 +898,7 @@ impl App {
         match self.overlay {
             Overlay::Editor(_) => KeyContext::Editor,
             Overlay::Help => KeyContext::Help,
+            Overlay::Search(_) => KeyContext::Search,
             Overlay::None | Overlay::Timeline(_) | Overlay::Picker(_) => KeyContext::Main,
         }
     }
@@ -841,6 +932,7 @@ impl App {
             Action::OpenAnnotations => self.open_picker(PickerKind::Annotations),
             Action::Timeline => self.open_timeline(),
             Action::ShowHelp => self.open_help(),
+            Action::Search => self.open_search(),
             Action::Reopen => self.reopen(),
             Action::Reload => self.reload(),
             Action::Edit => self.begin_edit(),
@@ -863,6 +955,18 @@ impl App {
             Action::EditorOpenExternal => self.request_external_edit(),
             Action::EditorCycleType => self.editor_cycle_type(),
             Action::EditorSave => self.editor_save(),
+            Action::SearchNext => self.search_step(Direction::Down),
+            Action::SearchPrev => self.search_step(Direction::Up),
+            Action::SearchChar(c) => self.with_search(|text| text.insert(c)),
+            Action::SearchBackspace => self.with_search(TextField::backspace),
+            Action::SearchDeleteForward => self.with_search(TextField::delete_forward),
+            Action::SearchDeleteWordBack => self.with_search(TextField::delete_word_back),
+            Action::SearchLeft => self.with_search(TextField::left),
+            Action::SearchRight => self.with_search(TextField::right),
+            Action::SearchWordLeft => self.with_search(TextField::word_left),
+            Action::SearchWordRight => self.with_search(TextField::word_right),
+            Action::SearchLineStart => self.with_search(TextField::line_start),
+            Action::SearchLineEnd => self.with_search(TextField::line_end),
             Action::SpawnAgentForAnnotation => self.spawn_agent_for_annotation(),
             Action::SpawnAgentForOpen => self.spawn_agent(AgentScope::AllOpen),
             Action::HandOff => self.hand_off(),
@@ -882,7 +986,7 @@ impl App {
     /// timeline's scroll, else the diff cursor.
     fn step_cursor(&mut self, direction: Direction) {
         match &self.overlay {
-            Overlay::Editor(_) | Overlay::Help => {}
+            Overlay::Editor(_) | Overlay::Help | Overlay::Search(_) => {}
             Overlay::Timeline(_) => self.scroll_timeline(direction),
             Overlay::Picker(picker) => {
                 let kind = picker.kind;
@@ -968,7 +1072,11 @@ impl App {
                 kind: PickerKind::Commits,
                 ..
             }) => self.scroll_message(direction),
-            Overlay::Editor(_) | Overlay::Timeline(_) | Overlay::Picker(_) | Overlay::Help => {}
+            Overlay::Editor(_)
+            | Overlay::Timeline(_)
+            | Overlay::Picker(_)
+            | Overlay::Help
+            | Overlay::Search(_) => {}
             Overlay::None => {
                 let step = (self.diff_viewport_height / 2).max(1);
 
@@ -1154,7 +1262,7 @@ impl App {
     /// diff, or annotate the current line/selection.
     fn confirm(&mut self) {
         match self.overlay {
-            Overlay::Picker(_) => self.overlay = Overlay::None,
+            Overlay::Picker(_) | Overlay::Search(_) => self.overlay = Overlay::None,
             Overlay::None => self.begin_annotation(),
             Overlay::Editor(_) | Overlay::Timeline(_) | Overlay::Help => {}
         }
@@ -1269,7 +1377,9 @@ impl App {
                 commit: self.commit_cursor,
                 row: self.diff_cursor,
             },
-            Overlay::Editor(_) | Overlay::Timeline(_) | Overlay::Help => return,
+            Overlay::Editor(_) | Overlay::Timeline(_) | Overlay::Help | Overlay::Search(_) => {
+                return;
+            }
         };
 
         if matches!(kind, PickerKind::Annotations) {
@@ -1309,6 +1419,11 @@ impl App {
                 let restore = picker.restore;
                 self.overlay = Overlay::None;
                 self.restore_position(restore);
+            }
+            Overlay::Search(search) => {
+                let restore_row = search.restore_row;
+                self.overlay = Overlay::None;
+                self.set_diff_cursor(restore_row);
             }
             Overlay::None => self.selection_anchor = None,
             Overlay::Editor(_) | Overlay::Timeline(_) | Overlay::Help => {
@@ -1367,6 +1482,22 @@ impl App {
         if matches!(self.overlay, Overlay::None) {
             self.overlay = Overlay::Help;
         }
+    }
+
+    /// Open the `/` search over the diff, parked at the current cursor so `Esc`
+    /// can put the diff back there. The bar captures text while the diff stays
+    /// live behind it.
+    fn open_search(&mut self) {
+        if !matches!(self.overlay, Overlay::None) {
+            return;
+        }
+
+        self.overlay = Overlay::Search(Search {
+            query: TextField::default(),
+            restore_row: self.diff_cursor,
+            matches: Vec::new(),
+            match_index: 0,
+        });
     }
 
     /// Open the timeline for the focused annotation, or close it if `t` opened
@@ -1525,6 +1656,10 @@ impl App {
             .min(self.annotations.len().saturating_sub(1));
         self.load_selected_commit();
         self.cancel_overlay_if_orphaned();
+        // The diff rows were rebuilt; a search's match indices are stale.
+        if matches!(self.overlay, Overlay::Search(_)) {
+            self.overlay = Overlay::None;
+        }
 
         self.status_message = Some("reloaded".into());
     }
@@ -1745,6 +1880,98 @@ impl App {
         if let Overlay::Editor(editor) = &mut self.overlay {
             edit(&mut editor.text);
         }
+    }
+
+    /// Run `edit` against the open search's query, then re-derive its matches.
+    fn with_search(&mut self, edit: impl FnOnce(&mut TextField)) {
+        let Overlay::Search(search) = &mut self.overlay else {
+            return;
+        };
+
+        edit(&mut search.query);
+        self.recompute_search();
+    }
+
+    /// Re-derive the matches for the current query and jump to the first one at
+    /// or after where the search started, wrapping to the top. An empty query
+    /// matches nothing and leaves the cursor where it is.
+    fn recompute_search(&mut self) {
+        let Overlay::Search(search) = &mut self.overlay else {
+            return;
+        };
+
+        let needle = Lowercased::new(search.query.contents());
+
+        if needle.is_empty() {
+            search.matches.clear();
+            search.match_index = 0;
+            return;
+        }
+
+        search.matches = self
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row_matches(row, &needle))
+            .map(|(index, _)| index)
+            .collect();
+
+        let restore_row = search.restore_row;
+        search.match_index = search
+            .matches
+            .iter()
+            .position(|&row| row >= restore_row)
+            .unwrap_or(0);
+
+        self.jump_to_search_match();
+    }
+
+    /// Move the diff cursor onto the current match, if any.
+    fn jump_to_search_match(&mut self) {
+        let Overlay::Search(search) = &self.overlay else {
+            return;
+        };
+
+        if let Some(&row) = search.matches.get(search.match_index) {
+            self.set_diff_cursor(row);
+        }
+    }
+    /// The open search's match byte ranges within `row_index`'s line text, for
+    /// painting the matched substring. Empty when there is no open search, when
+    /// `row_index` is not the current match, or when the row is not a diff line.
+    pub fn search_match_ranges(&self, row_index: usize) -> Vec<Range<usize>> {
+        let Overlay::Search(search) = &self.overlay else {
+            return Vec::new();
+        };
+
+        if search.matches.get(search.match_index) != Some(&row_index) {
+            return Vec::new();
+        }
+
+        let Some(Row::Line { line, .. }) = self.rows.get(row_index) else {
+            return Vec::new();
+        };
+
+        match_ranges(&line.content, &Lowercased::new(search.query.contents()))
+    }
+
+    /// Advance to the next/previous match, wrapping.
+    fn search_step(&mut self, direction: Direction) {
+        let Overlay::Search(search) = &mut self.overlay else {
+            return;
+        };
+
+        if search.matches.is_empty() {
+            return;
+        }
+
+        let len = search.matches.len();
+        search.match_index = match direction {
+            Direction::Down => (search.match_index + 1) % len,
+            Direction::Up => (search.match_index + len - 1) % len,
+        };
+
+        self.jump_to_search_match();
     }
 
     /// Request that the event loop hand the open editor's body off to `$EDITOR`.
@@ -2431,6 +2658,23 @@ fn gap_context(prev: &Hunk, next: &Hunk, file_lines: Option<&Vec<String>>) -> Ve
 mod tests {
     use super::*;
     use crate::model::RevisionId;
+
+    #[test]
+    fn match_ranges_finds_case_insensitive_byte_ranges() {
+        // Two occurrences, case-insensitive, non-overlapping.
+        assert_eq!(
+            match_ranges("one Fish two fish", &Lowercased::new("fish")),
+            vec![4..8, 13..17]
+        );
+        // Multi-byte chars keep byte ranges on char boundaries.
+        assert_eq!(
+            match_ranges("héllo é", &Lowercased::new("é")),
+            vec![1..3, 7..9]
+        );
+        // A query longer than the text, or empty, matches nothing.
+        assert!(match_ranges("ab", &Lowercased::new("abc")).is_empty());
+        assert!(match_ranges("ab", &Lowercased::new("")).is_empty());
+    }
 
     #[test]
     fn text_field_inserts_at_the_cursor() {

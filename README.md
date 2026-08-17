@@ -96,6 +96,7 @@ In the diff:
 | Key                   | Action                                                    |
 | --------------------- | --------------------------------------------------------- |
 | `n` / `p`             | next / previous change                                    |
+| `/`                   | search the diff text (see below)                          |
 | `N` / `P`             | next / previous annotation (crosses into adjacent commits)    |
 | `J` / `K`             | next / previous commit                                    |
 | `Ctrl-d` / `Ctrl-u`   | half-page down / up                                       |
@@ -105,6 +106,13 @@ In the diff:
 | `v` (or `Space`)      | start / stop a line-range selection                       |
 | `a` (or `Enter`)      | annotate the current line or selection                    |
 | `Esc`                 | drop the selection                                        |
+
+`/` opens a search bar over the diff. Typing jumps the cursor to the first
+matching line or file header after where the search began, wrapping to the top;
+the match count sits beside the query and the matched substring is highlighted.
+`Ctrl-n` / `Ctrl-p` step to the next / previous match, `Enter` keeps the current
+match and closes the bar, and `Esc` closes it and puts the diff back where it
+was. Matching is case-insensitive.
 
 An annotation the agent closed — resolved or declined — keeps only its gutter
 icon (`✓`) on the lines it covers; its block stays out of the diff so the review
