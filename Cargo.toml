@@ -3,7 +3,7 @@ name = "margin"
 version = "0.16.0"
 edition = "2024"
 description = "A local TUI for code-review annotations over git/jj"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 [lib]
 name = "margin"

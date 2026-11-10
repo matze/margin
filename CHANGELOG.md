@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   install-skill` still installs it as `margin-review`. The prompt of a spawned
   agent names both `margin:review` and `margin-review`.
 
+### Fixed
+
+- The crate declares the MIT license only, matching `LICENSE`. It claimed
+  `MIT OR Apache-2.0` without shipping an Apache license text.
+
 ## [0.16.0]
 
 ### Added
