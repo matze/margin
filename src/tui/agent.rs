@@ -47,17 +47,20 @@ pub enum AgentScope {
 }
 
 /// The prompt handed to the headless agent for `scope`. Both forms point at the
-/// `margin-review` skill, which encodes the read/edit/write-back workflow.
+/// review skill, which encodes the read/edit/write-back workflow. It is
+/// `margin:review` when installed from the plugin and `margin-review` when
+/// installed with `margin install-skill`.
 pub fn prompt_for(scope: &AgentScope) -> String {
     match scope {
-        AgentScope::AllOpen => "Use the margin-review skill to address all open margin \
-             review annotations: read them with `margin list --json --open`, make the code \
-             changes, and record each outcome with `margin status`."
+        AgentScope::AllOpen => "Use the margin review skill (`margin:review` or \
+             `margin-review`) to address all open margin review annotations: read them with \
+             `margin list --json --open`, make the code changes, and record each outcome with \
+             `margin status`."
             .to_string(),
         AgentScope::Focused(id) => format!(
-            "Use the margin-review skill to address the single margin review annotation with \
-             id {id}: read it with `margin list --json`, make the code change, and record the \
-             outcome with `margin status {id} ...`.",
+            "Use the margin review skill (`margin:review` or `margin-review`) to address the \
+             single margin review annotation with id {id}: read it with `margin list --json`, \
+             make the code change, and record the outcome with `margin status {id} ...`.",
             id = id.0
         ),
     }
@@ -75,7 +78,7 @@ fn program() -> String {
 /// runs `margin status` (a `Bash` call) without prompting, which `acceptEdits`
 /// alone cannot — there is no TTY to answer a prompt, so anything less stalls
 /// the session. The environment is inherited (not cleared) so `CLAUDE_CONFIG_DIR`
-/// and `PATH` reach the child, letting it find the `margin-review` skill.
+/// and `PATH` reach the child, letting it find the review skill.
 fn command(repo_root: &Path, scope: &AgentScope) -> Command {
     let mut command = Command::new(program());
 

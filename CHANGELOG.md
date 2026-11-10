@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The repository is a Claude Code plugin marketplace. Its `margin` plugin
+  ships the review skill as `/margin:review` and adds `/margin:open`, which
+  opens margin for the current checkout in a new WezTerm tab.
+
+### Changed
+
+- The review skill moved to `plugin/skills/review/SKILL.md` and dropped its
+  `name:` frontmatter, so its install directory names it. `margin
+  install-skill` still installs it as `margin-review`. The prompt of a spawned
+  agent names both `margin:review` and `margin-review`.
+
 ## [0.16.0]
 
 ### Added

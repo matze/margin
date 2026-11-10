@@ -178,6 +178,16 @@ margin schema                             # the JSON Schema of the list --json o
 The skill only documents the CLI above, so any agent can follow it: `--print`
 writes it wherever your agent looks for instructions.
 
+In Claude Code, install the `margin` plugin from this repository instead:
+
+```
+/plugin marketplace add matze/margin
+/plugin install margin@margin
+```
+
+It ships the same skill as `/margin:review`, plus `/margin:open [path]
+[flags]`, which opens margin for the current checkout in a new WezTerm tab.
+
 `margin list --json` folds the event log into current per-annotation state
 (status, re-anchored location, snippet), so the agent never touches the raw
 NDJSON. The output is a versioned envelope — an agent keyed to its exact shape

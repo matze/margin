@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "margin",
+  "description": "Agent skills for the margin code-review TUI",
+  "owner": {
+    "name": "Matthias Vogelgesang"
+  },
+  "plugins": [
+    {
+      "name": "margin",
+      "description": "Open the margin TUI in a new terminal tab and address the annotations a reviewer left in it",
+      "source": "./plugin"
+    }
+  ]
+}

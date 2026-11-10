@@ -13,7 +13,7 @@ pub const NAME: &str = "margin-review";
 /// The skill document, embedded from the repository so the installed copy never
 /// drifts from the source of truth. Public so it can also be written somewhere
 /// margin does not know the convention for, such as an `AGENTS.md`.
-pub const DOCUMENT: &str = include_str!("../../.claude/skills/margin-review/SKILL.md");
+pub const DOCUMENT: &str = include_str!("../../plugin/skills/review/SKILL.md");
 
 /// The JSON Schema of the `list --json` output, embedded from the repository so
 /// the copy `install` drops next to `SKILL.md` never drifts from the committed
@@ -81,6 +81,10 @@ mod tests {
     #[test]
     fn embedded_skill_has_frontmatter() {
         assert!(DOCUMENT.starts_with("---\n"));
-        assert!(DOCUMENT.contains("name: margin-review"));
+        assert!(DOCUMENT.contains("\ndescription:"));
+        assert!(
+            !DOCUMENT.contains("\nname:"),
+            "the directory names the skill: `margin-review` here, `margin:review` in the plugin"
+        );
     }
 }

@@ -1,5 +1,4 @@
 ---
-name: margin-review
 description: >-
   Address code-review annotations left in the margin TUI. Use when the user asks
   to address/handle/resolve review annotations, margin annotations, or review

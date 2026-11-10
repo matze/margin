@@ -1,0 +1,9 @@
+{
+  "name": "margin",
+  "description": "Open the margin TUI in a new terminal tab and address the annotations a reviewer left in it",
+  "author": {
+    "name": "Matthias Vogelgesang"
+  },
+  "homepage": "https://github.com/matze/margin",
+  "license": "MIT"
+}
